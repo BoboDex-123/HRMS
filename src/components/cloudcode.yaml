@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Onboarding Form Backend Infrastructure'
+
+Resources:
+  # DynamoDB Table for storing form data
+  OnboardingTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: OnboardingSubmissions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: submissionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: submissionId
+          KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  # S3 Bucket for document storage
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'onboarding-documents-${AWS::AccountId}'
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # IAM Role for Lambda function
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt OnboardingTable.Arn
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:GetSignedUrl
+                Resource: !Sub '${DocumentsBucket}/*'
+
+  # Lambda function for handling API requests
+  OnboardingLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: OnboardingFormHandler
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'OPTIONS,POST,GET'
+              },
+              body: JSON.stringify({ message: 'Hello from Lambda!' })
+            };
+          };
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref OnboardingTable
+          BUCKET_NAME: !Ref DocumentsBucket
+
+  # API Gateway
+  OnboardingAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: OnboardingAPI
+      Description: API for onboarding form submissions
+
+  # API Gateway Resource
+  OnboardingResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref OnboardingAPI
+      ParentId: !GetAtt OnboardingAPI.RootResourceId
+      PathPart: onboarding
+
+  # API Gateway Method
+  OnboardingMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref OnboardingAPI
+      ResourceId: !Ref OnboardingResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnboardingLambda.Arn}/invocations'
+
+  # Lambda permission for API Gateway
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref OnboardingLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub '${OnboardingAPI}/*/POST/onboarding'
+
+  # API Gateway Deployment
+  APIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: OnboardingMethod
+    Properties:
+      RestApiId: !Ref OnboardingAPI
+      StageName: prod
+
+Outputs:
+  APIEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${OnboardingAPI}.execute-api.${AWS::Region}.amazonaws.com/prod'
+  
+  BucketName:
+    Description: S3 Bucket for documents
+    Value: !Ref DocumentsBucket
+    
+  TableName:
+    Description: DynamoDB table name
+    Value: !Ref OnboardingTable
