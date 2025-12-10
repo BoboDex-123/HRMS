@@ -1,6 +1,8 @@
 import React from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import { Box, Drawer, List, ListItem, ListItemText, Toolbar, AppBar, Typography, Button } from '@mui/material';
+import { Box, Drawer, List, ListItem, ListItemText, Toolbar, AppBar, Typography, Button, ListItemIcon } from '@mui/material';
+import { Home as HomeIcon, EventNote as LeaveIcon, Logout as LogoutIcon } from '@mui/icons-material';
+import { signOut } from '@aws-amplify/auth';
 import EmployeeHome from './EmployeeHome';
 import LeaveForm from './LeaveForm';
 
@@ -9,9 +11,18 @@ const drawerWidth = 240;
 const EmployeePortal = () => {
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    
-    navigate('/');
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      // Clear any local storage
+      localStorage.removeItem('amplify-signin-with-hostedUI');
+      sessionStorage.clear();
+      navigate('/');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      // Navigate anyway
+      navigate('/');
+    }
   };
 
   return (
@@ -19,7 +30,13 @@ const EmployeePortal = () => {
       <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
         <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
           <Typography variant="h6">Employee Portal</Typography>
-          <Button color="inherit" onClick={handleLogout}>Logout</Button>
+          <Button
+            color="inherit"
+            onClick={handleLogout}
+            startIcon={<LogoutIcon />}
+          >
+            Logout
+          </Button>
         </Toolbar>
       </AppBar>
 
@@ -34,10 +51,16 @@ const EmployeePortal = () => {
         <Toolbar />
         <Box sx={{ overflow: 'auto' }}>
           <List>
-            <ListItem button onClick={() => navigate('.')}> 
+            <ListItem button onClick={() => navigate('.')}>
+              <ListItemIcon>
+                <HomeIcon />
+              </ListItemIcon>
               <ListItemText primary="Home" />
             </ListItem>
-            <ListItem button onClick={() => navigate('leave')}> 
+            <ListItem button onClick={() => navigate('leave')}>
+              <ListItemIcon>
+                <LeaveIcon />
+              </ListItemIcon>
               <ListItemText primary="Apply for Leave" />
             </ListItem>
           </List>
@@ -47,7 +70,7 @@ const EmployeePortal = () => {
       <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
         <Toolbar />
         <Routes>
-          <Route index element={<EmployeeHome />} />    
+          <Route index element={<EmployeeHome />} />
           <Route path="leave" element={<LeaveForm />} />
         </Routes>
       </Box>

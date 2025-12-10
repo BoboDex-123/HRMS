@@ -1,23 +1,28 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { ThemeProvider, CssBaseline } from '@mui/material';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { Amplify } from 'aws-amplify';
 import awsExports from './aws-exports';
+import theme from './theme';
 
 Amplify.configure({
   ...awsExports,
   Auth: {
     ...awsExports.Auth,
-    storage: window.localStorage, 
+    storage: window.sessionStorage, // Use sessionStorage instead of localStorage for better security
   },
 });
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <App />
+    </ThemeProvider>
   </React.StrictMode>
 );
 

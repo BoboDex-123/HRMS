@@ -2,32 +2,36 @@ import React, { useState } from 'react';
 import {
   Box, Paper, TextField, Button, Typography, CircularProgress, Snackbar, Alert
 } from '@mui/material';
+import config from '../../config';
 
-const CreateEmployee = () => {
+const CreateEmployee = ({ authToken }) => {
   const [formData, setFormData] = useState({ username: '', email: '' });
   const [loading, setLoading] = useState(false);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/admin/create-employee', {
+      const res = await fetch(`${config.API_URL}/api/admin/create-employee`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
         body: JSON.stringify(formData),
       });
 
       if (res.ok) {
-        setSnackbarOpen(true);
+        setSnackbar({ open: true, message: 'Employee account created successfully!', severity: 'success' });
         setFormData({ username: '', email: '' });
       } else {
         const error = await res.json();
-        alert('Error: ' + error.message);
+        setSnackbar({ open: true, message: error.message || 'Failed to create employee', severity: 'error' });
       }
     } catch (err) {
       console.error(err);
-      alert('Network error');
+      setSnackbar({ open: true, message: 'Network error - unable to connect to server', severity: 'error' });
     } finally {
       setLoading(false);
     }
@@ -57,16 +61,18 @@ const CreateEmployee = () => {
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
           />
-          <Button type="submit" fullWidth variant="contained" disabled={loading}>
+          <Button type="submit" fullWidth variant="contained" sx={{ mt: 2 }} disabled={loading}>
             {loading ? <CircularProgress size={24} /> : 'Create Employee'}
           </Button>
         </form>
         <Snackbar
-          open={snackbarOpen}
-          autoHideDuration={3000}
-          onClose={() => setSnackbarOpen(false)}
+          open={snackbar.open}
+          autoHideDuration={4000}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
         >
-          <Alert severity="success">Employee account created!</Alert>
+          <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
+            {snackbar.message}
+          </Alert>
         </Snackbar>
       </Paper>
     </Box>

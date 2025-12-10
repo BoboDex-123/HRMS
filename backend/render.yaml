@@ -1,0 +1,33 @@
+# Render Blueprint for HRMS Backend
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: hrms-backend
+    runtime: node
+    region: singapore  # Change to your preferred region
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AWS_ACCESS_KEY_ID
+        sync: false  # Set in Render dashboard
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false  # Set in Render dashboard
+      - key: AWS_REGION
+        value: ap-southeast-2
+      - key: S3_BUCKET
+        sync: false  # Set in Render dashboard
+      - key: ADMIN_USERNAME
+        sync: false  # Set in Render dashboard
+      - key: ADMIN_PASSWORD
+        sync: false  # Set in Render dashboard
+      - key: COGNITO_USER_POOL_ID
+        sync: false  # Set in Render dashboard
+      - key: COGNITO_APP_CLIENT_ID
+        sync: false  # Set in Render dashboard
+      - key: ALLOWED_ORIGINS
+        sync: false  # Set to your Vercel URL in Render dashboard

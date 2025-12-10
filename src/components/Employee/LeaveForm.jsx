@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Box,
@@ -8,8 +8,11 @@ import {
   Paper,
   MenuItem,
   Snackbar,
-  Alert
+  Alert,
+  CircularProgress
 } from '@mui/material';
+import { getCurrentUser } from '@aws-amplify/auth';
+import config from '../../config';
 
 const LeaveForm = () => {
   const [formData, setFormData] = useState({
@@ -20,17 +23,75 @@ const LeaveForm = () => {
     endDate: '',
     reason: ''
   });
-  const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+  // Get current user email on mount
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const user = await getCurrentUser();
+        if (user?.signInDetails?.loginId) {
+          setFormData(prev => ({
+            ...prev,
+            email: user.signInDetails.loginId
+          }));
+        }
+      } catch (err) {
+        console.error('Error fetching user:', err);
+      }
+    };
+    fetchUser();
+  }, []);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Form submitted:', formData);
-    setOpenSnackbar(true);
-    setFormData({ name: '', email: '', leaveType: '', startDate: '', endDate: '', reason: '' });
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${config.API_URL}/api/leave-request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          employeeEmail: formData.email,
+          leaveType: formData.leaveType,
+          fromDate: formData.startDate,
+          toDate: formData.endDate,
+          reason: formData.reason
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit leave request');
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        setSnackbar({ open: true, message: 'Leave application submitted successfully!', severity: 'success' });
+        setFormData(prev => ({
+          ...prev,
+          name: '',
+          leaveType: '',
+          startDate: '',
+          endDate: '',
+          reason: ''
+        }));
+      } else {
+        throw new Error(result.error || 'Failed to submit leave request');
+      }
+    } catch (error) {
+      console.error('Leave submission error:', error);
+      setSnackbar({ open: true, message: error.message || 'Failed to submit leave request', severity: 'error' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -78,6 +139,7 @@ const LeaveForm = () => {
             fullWidth
             margin="normal"
             required
+            disabled
           />
           <TextField
             select
@@ -128,27 +190,32 @@ const LeaveForm = () => {
           />
           <Button
             component={motion.button}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             type="submit"
             fullWidth
             variant="contained"
             color="primary"
+            disabled={loading}
             sx={{ mt: 2, py: 1.5, fontWeight: 'bold', borderRadius: 2 }}
           >
-            Submit Application
+            {loading ? <CircularProgress size={24} color="inherit" /> : 'Submit Application'}
           </Button>
         </form>
       </Paper>
 
       <Snackbar
-        open={openSnackbar}
+        open={snackbar.open}
         autoHideDuration={4000}
-        onClose={() => setOpenSnackbar(false)}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert onClose={() => setOpenSnackbar(false)} severity="success" sx={{ width: '100%' }}>
-          Leave application submitted successfully!
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
         </Alert>
       </Snackbar>
     </Box>

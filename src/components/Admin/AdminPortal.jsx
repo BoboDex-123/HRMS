@@ -12,22 +12,32 @@ import {
   Grid,
   Tabs,
   Tab,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import EmployeeApprovals from './EmployeeApprovals';
-import LeaveApprovals from './LeaveApprovals'; 
+import LeaveApprovals from './LeaveApprovals';
 import CreateEmployee from './CreateEmployee';
+import config from '../../config';
 
 const AdminPortal = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authToken, setAuthToken] = useState('');
+  const [userRole, setUserRole] = useState('admin'); // 'admin' or 'superadmin'
   const [submissions, setSubmissions] = useState([]);
   const [fileUrls, setFileUrls] = useState({});
   const [loading, setLoading] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [tabIndex, setTabIndex] = useState(0);
-  const [leaveRequests, setLeaveRequests] = useState([]); 
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+
+  const showMessage = (message, severity = 'info') => {
+    setSnackbar({ open: true, message, severity });
+  };
 
   const handleTabChange = (event, newValue) => {
     setTabIndex(newValue);
@@ -37,49 +47,95 @@ const AdminPortal = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch(`${config.API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
 
-      if (response.ok) {
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setAuthToken(data.token);
+        setUserRole(data.role || 'admin');
         setIsAuthenticated(true);
-        fetchSubmissions();
+        sessionStorage.setItem('adminToken', data.token);
+        sessionStorage.setItem('adminRole', data.role || 'admin');
+        fetchSubmissions(data.token, data.role || 'admin');
       } else {
-        const error = await response.json();
-        alert(error.message || 'Login failed');
+        showMessage(data.message || 'Login failed', 'error');
       }
     } catch (err) {
       console.error('Login error:', err);
-      alert('Server error');
+      showMessage('Unable to connect to server', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchSubmissions = async () => {
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setAuthToken('');
+    setUserRole('admin');
+    setSubmissions([]);
+    setFileUrls({});
+    sessionStorage.removeItem('adminToken');
+    sessionStorage.removeItem('adminRole');
+  };
+
+  const fetchSubmissions = async (token, role) => {
     setLoading(true);
+    const currentRole = role || userRole;
+    const includeDeleted = currentRole === 'superadmin';
     try {
-      const response = await fetch('http://localhost:5000/api/submissions');
+      const url = includeDeleted
+        ? `${config.API_URL}/api/submissions?includeDeleted=true`
+        : `${config.API_URL}/api/submissions`;
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token || authToken}`
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          handleLogout();
+          showMessage('Session expired, please login again', 'warning');
+          return;
+        }
+        throw new Error('Failed to fetch submissions');
+      }
+
       const data = await response.json();
       const list = Array.isArray(data) ? data : data.Items || [];
-
       setSubmissions(list);
 
+      // Fetch file URLs
       const urls = {};
       for (const submission of list) {
         if (submission.files) {
           for (const file of submission.files) {
-            const res = await fetch(`http://localhost:5000/api/s3-url?key=${file.key}`);
-            const { url } = await res.json();
-            urls[file.key] = url;
+            try {
+              const res = await fetch(
+                `${config.API_URL}/api/s3-url?key=${encodeURIComponent(file.key)}`,
+                {
+                  headers: { 'Authorization': `Bearer ${token || authToken}` }
+                }
+              );
+              if (res.ok) {
+                const { url } = await res.json();
+                urls[file.key] = url;
+              }
+            } catch (err) {
+              console.error('Error fetching file URL:', err);
+            }
           }
         }
       }
       setFileUrls(urls);
     } catch (err) {
       console.error('Error fetching submissions:', err);
+      showMessage('Failed to fetch submissions', 'error');
     } finally {
       setLoading(false);
     }
@@ -87,9 +143,12 @@ const AdminPortal = () => {
 
   const updateStatus = async (id, newStatus) => {
     try {
-      const res = await fetch('http://localhost:5000/api/update-status', {
+      const res = await fetch(`${config.API_URL}/api/update-status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
         body: JSON.stringify({ id, status: newStatus }),
       });
 
@@ -99,18 +158,102 @@ const AdminPortal = () => {
         );
         setSubmissions(updated);
         setSelectedSubmission(null);
+        showMessage(`Status updated to ${newStatus}`, 'success');
       } else {
-        alert('Failed to update status');
+        if (res.status === 401) {
+          handleLogout();
+          showMessage('Session expired, please login again', 'warning');
+          return;
+        }
+        showMessage('Failed to update status', 'error');
       }
     } catch (err) {
       console.error('Status update error:', err);
-      alert('Server error');
+      showMessage('Server error while updating status', 'error');
+    }
+  };
+
+  const deleteSubmission = async (id) => {
+    try {
+      const res = await fetch(`${config.API_URL}/api/submissions/delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        // For super admin, mark as deleted in local state; for regular admin, remove
+        if (userRole === 'superadmin') {
+          setSubmissions(submissions.map((s) =>
+            s.id === id ? { ...s, isDeleted: true, deletedAt: new Date().toISOString() } : s
+          ));
+        } else {
+          setSubmissions(submissions.filter((s) => s.id !== id));
+        }
+        showMessage('Submission deleted successfully', 'success');
+      } else {
+        if (res.status === 401) {
+          handleLogout();
+          showMessage('Session expired, please login again', 'warning');
+          return;
+        }
+        showMessage('Failed to delete submission', 'error');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      showMessage('Server error while deleting submission', 'error');
+    }
+  };
+
+  const restoreSubmission = async (id) => {
+    try {
+      const res = await fetch(`${config.API_URL}/api/submissions/restore`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      if (res.ok) {
+        // Update local state to mark as not deleted
+        setSubmissions(submissions.map((s) =>
+          s.id === id ? { ...s, isDeleted: false, deletedAt: null } : s
+        ));
+        showMessage('Submission restored successfully', 'success');
+      } else {
+        if (res.status === 401) {
+          handleLogout();
+          showMessage('Session expired, please login again', 'warning');
+          return;
+        }
+        showMessage('Failed to restore submission', 'error');
+      }
+    } catch (err) {
+      console.error('Restore error:', err);
+      showMessage('Server error while restoring submission', 'error');
     }
   };
 
   const viewDetails = (submission) => {
     setSelectedSubmission(submission);
   };
+
+  // Check for existing session on mount
+  useEffect(() => {
+    const savedToken = sessionStorage.getItem('adminToken');
+    const savedRole = sessionStorage.getItem('adminRole') || 'admin';
+    if (savedToken) {
+      setAuthToken(savedToken);
+      setUserRole(savedRole);
+      setIsAuthenticated(true);
+      fetchSubmissions(savedToken, savedRole);
+    }
+  }, []);
 
   if (!isAuthenticated) {
     return (
@@ -157,15 +300,37 @@ const AdminPortal = () => {
             </Button>
           </form>
         </Paper>
+
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={4000}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+        >
+          <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
       </Box>
     );
   }
 
   return (
     <Box sx={{ p: 4 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-        Admin Dashboard
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box>
+          <Typography variant="h4">
+            {userRole === 'superadmin' ? 'Super Admin Dashboard' : 'Admin Dashboard'}
+          </Typography>
+          {userRole === 'superadmin' && (
+            <Typography variant="body2" color="text.secondary">
+              You can view and restore deleted submissions
+            </Typography>
+          )}
+        </Box>
+        <Button variant="outlined" color="error" onClick={handleLogout}>
+          Logout
+        </Button>
+      </Box>
 
       <Tabs value={tabIndex} onChange={handleTabChange} sx={{ mb: 3 }}>
         <Tab label="Employee Approvals" />
@@ -188,6 +353,9 @@ const AdminPortal = () => {
           searchTerm={searchTerm}
           loading={loading}
           onViewDetails={viewDetails}
+          onDeleteSubmission={deleteSubmission}
+          onRestoreSubmission={restoreSubmission}
+          userRole={userRole}
         />
       )}
 
@@ -200,8 +368,7 @@ const AdminPortal = () => {
         />
       )}
 
-      {tabIndex === 2 && <CreateEmployee />}
-
+      {tabIndex === 2 && <CreateEmployee authToken={authToken} />}
 
       <Dialog
         open={Boolean(selectedSubmission)}
@@ -277,6 +444,16 @@ const AdminPortal = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+      >
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

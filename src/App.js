@@ -18,10 +18,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Login />} />
-        
-       
         <Route path="/employee-login" element={<EmployeeAuthLogin />} />
-
         <Route path="/employee-portal/*" element={
           <RequireAuth>
             <EmployeePortal />

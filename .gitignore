@@ -47,3 +47,15 @@ amplifytools.xcconfig
 # Custom ignores
 backend/.env
 src/components/user1 access key
+
+# Environment files (all locations)
+.env
+.env.*
+!.env.example
+*/.env
+*/*/.env
+**/.env
+
+# Credentials files
+*access*key*
+*credentials*
