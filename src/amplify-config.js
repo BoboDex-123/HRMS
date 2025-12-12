@@ -1,11 +1,2 @@
-// amplify-config.js or App.js before any other Auth call
-import { Amplify } from 'aws-amplify';
-import awsExports from './aws-exports';
-
-Amplify.configure({
-  ...awsExports,
-  Auth: {
-    ...awsExports.Auth,
-    storage: window.localStorage, 
-  },
-});
+// amplify-config.js - Amplify is already configured in index.js
+// This file is kept for compatibility but no longer configures Amplify

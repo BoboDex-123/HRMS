@@ -8,13 +8,7 @@ import { Amplify } from 'aws-amplify';
 import awsExports from './aws-exports';
 import theme from './theme';
 
-Amplify.configure({
-  ...awsExports,
-  Auth: {
-    ...awsExports.Auth,
-    storage: window.sessionStorage, // Use sessionStorage instead of localStorage for better security
-  },
-});
+Amplify.configure(awsExports);
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
