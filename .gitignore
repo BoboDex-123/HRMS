@@ -33,7 +33,7 @@ amplify/backend/.temp
 build/
 dist/
 node_modules/
-aws-exports.js
+# aws-exports.js - now using env vars, safe to commit
 awsconfiguration.json
 amplifyconfiguration.json
 amplifyconfiguration.dart
