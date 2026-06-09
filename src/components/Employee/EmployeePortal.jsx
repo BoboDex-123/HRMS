@@ -2,9 +2,9 @@ import React from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { Box, Drawer, List, ListItem, ListItemText, Toolbar, AppBar, Typography, Button, ListItemIcon } from '@mui/material';
 import { Home as HomeIcon, EventNote as LeaveIcon, Logout as LogoutIcon } from '@mui/icons-material';
-import { signOut } from '@aws-amplify/auth';
 import EmployeeHome from './EmployeeHome';
 import LeaveForm from './LeaveForm';
+import { clearEmployeeSession } from '../../employeeAuth';
 
 const drawerWidth = 240;
 
@@ -13,9 +13,7 @@ const EmployeePortal = () => {
 
   const handleLogout = async () => {
     try {
-      await signOut();
-      // Clear any local storage
-      localStorage.removeItem('amplify-signin-with-hostedUI');
+      clearEmployeeSession();
       sessionStorage.clear();
       navigate('/');
     } catch (error) {

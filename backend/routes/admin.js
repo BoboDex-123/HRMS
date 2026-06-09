@@ -1,40 +1,41 @@
+// Admin-only routes. Mounted at /api/admin behind requireAdminAuth.
 const express = require('express');
 const router = express.Router();
-const {
-  CognitoIdentityProviderClient,
-  AdminCreateUserCommand
-} = require('@aws-sdk/client-cognito-identity-provider');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
+const { pool } = require('../db');
 
+// Generate a readable temporary password the admin hands to the new employee.
+function genTempPassword() {
+  return 'Welcome@' + Math.floor(1000 + Math.random() * 9000);
+}
+
+// Create a new employee login in the local `employees` table (replaces Cognito AdminCreateUser).
 router.post('/create-employee', async (req, res) => {
-  console.log("✅ Received create-employee POST request");
-
   const { username, email } = req.body;
-
-  const client = new CognitoIdentityProviderClient({
-    region: process.env.AWS_REGION,
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    },
-  });
-
-  const command = new AdminCreateUserCommand({
-    UserPoolId: process.env.COGNITO_USER_POOL_ID,
-    Username: username,
-    UserAttributes: [
-      { Name: 'email', Value: email },
-      { Name: 'email_verified', Value: 'true' },
-    ],
-    TemporaryPassword: 'Welcome@123',
-    MessageAction: 'SUPPRESS',
-  });
+  if (!username || !email) {
+    return res.status(400).json({ message: 'Username and email are required' });
+  }
 
   try {
-    const response = await client.send(command);
-    console.log("✅ Cognito response:", response);
-    res.json({ success: true });
+    const existing = await pool.query('SELECT 1 FROM employees WHERE username = $1', [username]);
+    if (existing.rowCount > 0) {
+      return res.status(409).json({ message: 'An employee with that username already exists' });
+    }
+
+    const tempPassword = genTempPassword();
+    const hash = await bcrypt.hash(tempPassword, 10);
+
+    await pool.query(
+      `INSERT INTO employees (id, username, email, password_hash, must_change_password)
+       VALUES ($1, $2, $3, $4, TRUE)`,
+      [uuidv4(), username, email, hash]
+    );
+
+    // Return the temp password so the admin can share it with the employee.
+    res.json({ success: true, tempPassword });
   } catch (err) {
-    console.error("❌ Error creating Cognito user:", err);
+    console.error('❌ Error creating employee:', err);
     res.status(500).json({ message: 'Failed to create employee' });
   }
 });

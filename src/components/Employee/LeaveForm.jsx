@@ -11,7 +11,7 @@ import {
   Alert,
   CircularProgress
 } from '@mui/material';
-import { getCurrentUser } from '@aws-amplify/auth';
+import { getEmployeeEmail } from '../../employeeAuth';
 import config from '../../config';
 
 const LeaveForm = () => {
@@ -28,20 +28,10 @@ const LeaveForm = () => {
 
   // Get current user email on mount
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const user = await getCurrentUser();
-        if (user?.signInDetails?.loginId) {
-          setFormData(prev => ({
-            ...prev,
-            email: user.signInDetails.loginId
-          }));
-        }
-      } catch (err) {
-        console.error('Error fetching user:', err);
-      }
-    };
-    fetchUser();
+    const email = getEmployeeEmail();
+    if (email) {
+      setFormData(prev => ({ ...prev, email }));
+    }
   }, []);
 
   const handleChange = (e) => {
@@ -60,6 +50,7 @@ const LeaveForm = () => {
         },
         body: JSON.stringify({
           employeeEmail: formData.email,
+          employeeName: formData.name,
           leaveType: formData.leaveType,
           fromDate: formData.startDate,
           toDate: formData.endDate,

@@ -7,6 +7,7 @@ import config from '../../config';
 const CreateEmployee = ({ authToken }) => {
   const [formData, setFormData] = useState({ username: '', email: '' });
   const [loading, setLoading] = useState(false);
+  const [tempPassword, setTempPassword] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const handleSubmit = async (e) => {
@@ -22,12 +23,17 @@ const CreateEmployee = ({ authToken }) => {
         body: JSON.stringify(formData),
       });
 
+      const data = await res.json();
       if (res.ok) {
-        setSnackbar({ open: true, message: 'Employee account created successfully!', severity: 'success' });
+        setTempPassword(data.tempPassword || '');
+        setSnackbar({
+          open: true,
+          message: `Employee created. Temporary password: ${data.tempPassword}`,
+          severity: 'success',
+        });
         setFormData({ username: '', email: '' });
       } else {
-        const error = await res.json();
-        setSnackbar({ open: true, message: error.message || 'Failed to create employee', severity: 'error' });
+        setSnackbar({ open: true, message: data.message || 'Failed to create employee', severity: 'error' });
       }
     } catch (err) {
       console.error(err);
@@ -65,6 +71,12 @@ const CreateEmployee = ({ authToken }) => {
             {loading ? <CircularProgress size={24} /> : 'Create Employee'}
           </Button>
         </form>
+        {tempPassword && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            Share this temporary password with the employee — they'll be asked to change it on first login:
+            <strong> {tempPassword}</strong>
+          </Alert>
+        )}
         <Snackbar
           open={snackbar.open}
           autoHideDuration={4000}

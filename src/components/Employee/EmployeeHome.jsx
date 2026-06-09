@@ -8,7 +8,7 @@ import {
   Schedule as PendingIcon,
   Person as PersonIcon,
 } from '@mui/icons-material';
-import { getCurrentUser } from '@aws-amplify/auth';
+import { getEmployeeEmail } from '../../employeeAuth';
 import { motion } from 'framer-motion';
 
 const StatCard = ({ title, value, subtitle, icon, color, delay }) => (
@@ -65,15 +65,7 @@ const EmployeeHome = () => {
   const [userName, setUserName] = useState('');
 
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const user = await getCurrentUser();
-        setUserName(user?.signInDetails?.loginId || 'Employee');
-      } catch (err) {
-        console.error('Error fetching user:', err);
-      }
-    };
-    fetchUser();
+    setUserName(getEmployeeEmail() || 'Employee');
   }, []);
 
   return (

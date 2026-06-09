@@ -18,6 +18,8 @@ import {
 import EmployeeApprovals from './EmployeeApprovals';
 import LeaveApprovals from './LeaveApprovals';
 import CreateEmployee from './CreateEmployee';
+import ManageAdmins from './ManageAdmins';
+import ChangePassword from './ChangePassword';
 import config from '../../config';
 
 const AdminPortal = () => {
@@ -33,6 +35,7 @@ const AdminPortal = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [tabIndex, setTabIndex] = useState(0);
   const [leaveRequests, setLeaveRequests] = useState([]);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
   const showMessage = (message, severity = 'info') => {
@@ -62,6 +65,7 @@ const AdminPortal = () => {
         sessionStorage.setItem('adminToken', data.token);
         sessionStorage.setItem('adminRole', data.role || 'admin');
         fetchSubmissions(data.token, data.role || 'admin');
+        fetchLeaveRequests(data.token);
       } else {
         showMessage(data.message || 'Login failed', 'error');
       }
@@ -81,6 +85,51 @@ const AdminPortal = () => {
     setFileUrls({});
     sessionStorage.removeItem('adminToken');
     sessionStorage.removeItem('adminRole');
+  };
+
+  const fetchLeaveRequests = async (token) => {
+    try {
+      const response = await fetch(`${config.API_URL}/api/leave-requests`, {
+        headers: { 'Authorization': `Bearer ${token || authToken}` }
+      });
+      if (!response.ok) {
+        if (response.status === 401) return; // submissions fetch handles session expiry
+        throw new Error('Failed to fetch leave requests');
+      }
+      const data = await response.json();
+      setLeaveRequests(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Error fetching leave requests:', err);
+    }
+  };
+
+  const updateLeaveStatus = async (id, newStatus) => {
+    try {
+      const res = await fetch(`${config.API_URL}/api/leave-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ id, status: newStatus }),
+      });
+      if (res.ok) {
+        setLeaveRequests((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r))
+        );
+        showMessage(`Leave ${newStatus.toLowerCase()}`, 'success');
+      } else {
+        if (res.status === 401) {
+          handleLogout();
+          showMessage('Session expired, please login again', 'warning');
+          return;
+        }
+        showMessage('Failed to update leave status', 'error');
+      }
+    } catch (err) {
+      console.error('Leave status error:', err);
+      showMessage('Server error while updating leave status', 'error');
+    }
   };
 
   const fetchSubmissions = async (token, role) => {
@@ -110,26 +159,12 @@ const AdminPortal = () => {
       const list = Array.isArray(data) ? data : data.Items || [];
       setSubmissions(list);
 
-      // Fetch file URLs
+      // Signed download URLs now come inline with each file (one request total, generated
+      // server-side) instead of a separate fetch per document.
       const urls = {};
       for (const submission of list) {
-        if (submission.files) {
-          for (const file of submission.files) {
-            try {
-              const res = await fetch(
-                `${config.API_URL}/api/s3-url?key=${encodeURIComponent(file.key)}`,
-                {
-                  headers: { 'Authorization': `Bearer ${token || authToken}` }
-                }
-              );
-              if (res.ok) {
-                const { url } = await res.json();
-                urls[file.key] = url;
-              }
-            } catch (err) {
-              console.error('Error fetching file URL:', err);
-            }
-          }
+        for (const file of submission.files || []) {
+          if (file.url) urls[file.key] = file.url;
         }
       }
       setFileUrls(urls);
@@ -252,6 +287,7 @@ const AdminPortal = () => {
       setUserRole(savedRole);
       setIsAuthenticated(true);
       fetchSubmissions(savedToken, savedRole);
+      fetchLeaveRequests(savedToken);
     }
   }, []);
 
@@ -327,25 +363,33 @@ const AdminPortal = () => {
             </Typography>
           )}
         </Box>
-        <Button variant="outlined" color="error" onClick={handleLogout}>
-          Logout
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" onClick={() => setChangePasswordOpen(true)}>
+            Change Password
+          </Button>
+          <Button variant="outlined" color="error" onClick={handleLogout}>
+            Logout
+          </Button>
+        </Box>
       </Box>
 
       <Tabs value={tabIndex} onChange={handleTabChange} sx={{ mb: 3 }}>
         <Tab label="Employee Approvals" />
         <Tab label="Leave Approvals" />
         <Tab label="Create Employee Login" />
+        {userRole === 'superadmin' && <Tab label="Manage Admins" />}
       </Tabs>
 
-      <TextField
-        label="Search by name or email"
-        variant="outlined"
-        fullWidth
-        sx={{ mb: 3 }}
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
-      />
+      {tabIndex === 0 && (
+        <TextField
+          label="Search by name or email"
+          variant="outlined"
+          fullWidth
+          sx={{ mb: 3 }}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
+        />
+      )}
 
       {tabIndex === 0 && (
         <EmployeeApprovals
@@ -363,12 +407,22 @@ const AdminPortal = () => {
         <LeaveApprovals
           leaveRequests={leaveRequests}
           loading={loading}
-          onApproveLeave={(id) => updateStatus(id, 'Leave Approved')}
-          onRejectLeave={(id) => updateStatus(id, 'Leave Rejected')}
+          onApproveLeave={(id) => updateLeaveStatus(id, 'Approved')}
+          onRejectLeave={(id) => updateLeaveStatus(id, 'Rejected')}
         />
       )}
 
       {tabIndex === 2 && <CreateEmployee authToken={authToken} />}
+
+      {tabIndex === 3 && userRole === 'superadmin' && (
+        <ManageAdmins authToken={authToken} />
+      )}
+
+      <ChangePassword
+        open={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+        authToken={authToken}
+      />
 
       <Dialog
         open={Boolean(selectedSubmission)}

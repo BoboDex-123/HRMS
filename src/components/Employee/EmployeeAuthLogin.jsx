@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { signIn, confirmSignIn } from '@aws-amplify/auth';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -11,11 +10,14 @@ import {
   Alert,
 } from '@mui/material';
 import { motion } from 'framer-motion';
+import config from '../../config';
+import { setEmployeeSession } from '../../employeeAuth';
 
 const EmployeeAuthLogin = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [changeToken, setChangeToken] = useState('');
   const [needsNewPassword, setNeedsNewPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25,11 +27,22 @@ const EmployeeAuthLogin = () => {
     setLoading(true);
     setError('');
     try {
-      const result = await signIn({ username, password });
+      const res = await fetch(`${config.API_URL}/api/employee/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
 
-      if (result.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+      if (!res.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      if (data.mustChangePassword) {
+        setChangeToken(data.changeToken);
         setNeedsNewPassword(true);
-      } else if (result.isSignedIn) {
+      } else {
+        setEmployeeSession({ token: data.token, email: data.email });
         navigate('/employee-portal');
       }
     } catch (err) {
@@ -43,13 +56,22 @@ const EmployeeAuthLogin = () => {
     setLoading(true);
     setError('');
     try {
-      const result = await confirmSignIn({
-        challengeResponse: newPassword,
+      const res = await fetch(`${config.API_URL}/api/employee/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${changeToken}`,
+        },
+        body: JSON.stringify({ newPassword }),
       });
+      const data = await res.json();
 
-      if (result.isSignedIn) {
-        navigate('/employee-portal');
+      if (!res.ok) {
+        throw new Error(data.error || 'Password update failed');
       }
+
+      setEmployeeSession({ token: data.token, email: data.email });
+      navigate('/employee-portal');
     } catch (err) {
       console.error('New password error:', err);
       setError(err.message || 'Password update failed');

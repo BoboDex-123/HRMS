@@ -1,13 +1,31 @@
 require('dotenv').config();
 const express = require('express');
-const AWS = require('aws-sdk');
 const cors = require('cors');
 const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
-const { createSession, requireAdminAuth } = require('./middleware/auth');
+
+const { pool, initDb } = require('./db');
+const storage = require('./storage');
+const {
+  createToken,
+  requireAdminAuth,
+  requireSuperAdmin,
+  requireEmployeeAuth,
+} = require('./middleware/auth');
+
+if (!process.env.JWT_SECRET) {
+  console.error('❌ JWT_SECRET is not set. Add it to backend/.env before starting.');
+  process.exit(1);
+}
 
 const app = express();
+
+// API base URL used to build absolute file-download links.
+const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
 
 // CORS configuration - restrict to specific origins in production
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -16,7 +34,6 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -29,41 +46,29 @@ app.use(cors({
 
 app.use(express.json());
 
-// Rate limiting for login endpoint
+// Rate limiting for login endpoints
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per window
+  windowMs: 15 * 60 * 1000,
+  max: 5,
   message: { error: 'Too many login attempts, please try again after 15 minutes' },
   standardHeaders: true,
   legacyHeaders: false
 });
 
-// General rate limiting
 const generalLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 100, // 100 requests per minute
+  windowMs: 1 * 60 * 1000,
+  max: 100,
   message: { error: 'Too many requests, please slow down' }
 });
 
 app.use(generalLimiter);
 
-// AWS Config
-AWS.config.update({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION,
-});
-
-const dynamoDB = new AWS.DynamoDB.DocumentClient();
-const s3 = new AWS.S3();
-
-// Multer configuration for file uploads
-const storage = multer.memoryStorage();
+// Multer: keep uploads in memory, then hand the buffer to local storage.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max file size
-    files: 15 // Max 15 files
+    fileSize: 10 * 1024 * 1024,
+    files: 15
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
@@ -75,67 +80,171 @@ const upload = multer({
   }
 });
 
-// Admin routes
-const adminRoutes = require('./routes/admin');
-app.use('/api/admin', requireAdminAuth, adminRoutes);
+// Convert a submissions row (snake_case DB) into the camelCase shape the frontend expects,
+// plus a flat `files` array of { key, field } for the document viewer.
+function rowToSubmission(row) {
+  const documents = row.documents || {};
+  const files = [];
+  for (const field in documents) {
+    const keys = documents[field];
+    if (Array.isArray(keys)) {
+      keys.forEach((key) => files.push({ key, field }));
+    }
+  }
+  return {
+    id: row.id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    email: row.email,
+    phone: row.phone,
+    dob: row.dob,
+    address: row.address,
+    panNumber: row.pan_number,
+    schoolName: row.school_name,
+    collegeName: row.college_name,
+    universityName: row.university_name,
+    hasPostGraduation: row.has_post_graduation,
+    status: row.status,
+    submittedAt: row.submitted_at,
+    isDeleted: row.is_deleted,
+    deletedAt: row.deleted_at,
+    files,
+  };
+}
 
-// Health check endpoint
+// === Health check ===
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// === Admin Login Route ===
-app.post('/api/auth/login', loginLimiter, (req, res) => {
-  const { username, password } = req.body;
+// === Admin Login (DB-backed `admins` table; seeded once from env) ===
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
+  try {
+    const { username, password } = req.body;
 
-  // Input validation
-  if (!username || !password) {
-    return res.status(400).json({ success: false, message: 'Username and password are required' });
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: 'Username and password are required' });
+    }
+    if (typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ success: false, message: 'Invalid input format' });
+    }
+
+    const { rows } = await pool.query('SELECT * FROM admins WHERE username = $1', [username]);
+    const admin = rows[0];
+    if (!admin || !admin.is_active || !(await bcrypt.compare(password, admin.password_hash))) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+
+    const token = createToken(admin.username, admin.role, { id: admin.id });
+    return res.json({ success: true, token, role: admin.role });
+  } catch (err) {
+    console.error('Admin login error:', err);
+    return res.status(500).json({ success: false, message: 'Login failed' });
   }
-
-  if (typeof username !== 'string' || typeof password !== 'string') {
-    return res.status(400).json({ success: false, message: 'Invalid input format' });
-  }
-
-  // Check for super admin credentials first
-  if (
-    username === process.env.SUPER_ADMIN_USERNAME &&
-    password === process.env.SUPER_ADMIN_PASSWORD
-  ) {
-    const token = createSession(username, 'superadmin');
-    return res.json({ success: true, token, role: 'superadmin' });
-  }
-
-  // Check for regular admin credentials
-  if (
-    username === process.env.ADMIN_USERNAME &&
-    password === process.env.ADMIN_PASSWORD
-  ) {
-    const token = createSession(username, 'admin');
-    return res.json({ success: true, token, role: 'admin' });
-  }
-
-  return res.status(401).json({ success: false, message: 'Invalid credentials' });
 });
 
-// === Submit Onboarding Form Route ===
+// === Admin: change own password ===
+app.post('/api/admin/change-password', requireAdminAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required' });
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    const { rows } = await pool.query('SELECT * FROM admins WHERE id = $1', [req.user.id]);
+    const admin = rows[0];
+    if (!admin || !(await bcrypt.compare(currentPassword, admin.password_hash))) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE admins SET password_hash = $1 WHERE id = $2', [hash, admin.id]);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Admin change-password error:', err);
+    return res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// === Employee Login (local `employees` table, replaces Cognito) ===
+app.post('/api/employee/login', loginLimiter, async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    const { rows } = await pool.query(
+      'SELECT * FROM employees WHERE username = $1',
+      [username]
+    );
+    const employee = rows[0];
+    if (!employee || !(await bcrypt.compare(password, employee.password_hash))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (employee.must_change_password) {
+      // Mirror Cognito's NEW_PASSWORD_REQUIRED challenge with a one-shot change token.
+      const changeToken = createToken(employee.username, 'employee');
+      return res.json({ mustChangePassword: true, changeToken });
+    }
+
+    return res.json({
+      token: createToken(employee.username, 'employee'),
+      email: employee.email,
+      username: employee.username,
+    });
+  } catch (err) {
+    console.error('Employee login error:', err);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// === Employee: complete first-login password change ===
+app.post('/api/employee/change-password', requireEmployeeAuth, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    const { rows } = await pool.query(
+      `UPDATE employees SET password_hash = $1, must_change_password = FALSE
+       WHERE username = $2 RETURNING email, username`,
+      [hash, req.user.username]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Employee not found' });
+
+    return res.json({
+      token: createToken(rows[0].username, 'employee'),
+      email: rows[0].email,
+      username: rows[0].username,
+    });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Failed to update password' });
+  }
+});
+
+// === Submit Onboarding Form ===
 app.post('/submit', upload.any(), async (req, res) => {
   try {
-    const { firstName, lastName, email, phone, dob, address, panNumber,
+    const { firstName, lastName, email, phone, dob, panNumber,
             schoolName, collegeName, universityName, hasPostGraduation } = req.body;
+    // Frontend sends `permanentAddress`; accept `address` too for compatibility.
+    const address = req.body.permanentAddress || req.body.address || null;
 
-    // Input validation
     if (!firstName || !lastName || !email || !phone) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-
-    // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
-
-    // Phone validation (10 digits)
     const phoneRegex = /^\d{10}$/;
     if (!phoneRegex.test(phone)) {
       return res.status(400).json({ error: 'Invalid phone number format' });
@@ -144,53 +253,31 @@ app.post('/submit', upload.any(), async (req, res) => {
     const submissionId = uuidv4();
     const documents = {};
 
-    // Upload files to S3
+    // Save each uploaded file locally; store relative keys in the documents map.
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         const fieldName = file.fieldname;
-        const fileKey = `submissions/${submissionId}/${fieldName}/${Date.now()}-${file.originalname}`;
-
-        await s3.upload({
-          Bucket: process.env.S3_BUCKET,
-          Key: fileKey,
-          Body: file.buffer,
-          ContentType: file.mimetype
-        }).promise();
-
-        const fileUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
-
-        if (!documents[fieldName]) {
-          documents[fieldName] = [];
-        }
-        documents[fieldName].push(fileUrl);
+        const safeName = path.basename(file.originalname).replace(/[^\w.\-]/g, '_');
+        const fileKey = `submissions/${submissionId}/${fieldName}/${Date.now()}-${safeName}`;
+        await storage.saveFile(fileKey, file.buffer, file.mimetype);
+        if (!documents[fieldName]) documents[fieldName] = [];
+        documents[fieldName].push(fileKey);
       }
     }
 
-    // Save to DynamoDB
-    const submission = {
-      id: submissionId,
-      firstName,
-      lastName,
-      email,
-      phone,
-      dob: dob || null,
-      address: address || null,
-      panNumber: panNumber || null,
-      schoolName: schoolName || null,
-      collegeName: collegeName || null,
-      universityName: universityName || null,
-      hasPostGraduation: hasPostGraduation === 'true',
-      documents: JSON.stringify(documents),
-      status: 'Pending',
-      submittedAt: new Date().toISOString(),
-      isDeleted: false,
-      deletedAt: null
-    };
-
-    await dynamoDB.put({
-      TableName: 'OnboardingSubmissions',
-      Item: submission
-    }).promise();
+    await pool.query(
+      `INSERT INTO submissions
+        (id, first_name, last_name, email, phone, dob, address, pan_number,
+         school_name, college_name, university_name, has_post_graduation,
+         documents, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'Pending')`,
+      [
+        submissionId, firstName, lastName, email, phone, dob || null, address,
+        panNumber || null, schoolName || null, collegeName || null,
+        universityName || null, hasPostGraduation === 'true',
+        JSON.stringify(documents),
+      ]
+    );
 
     res.json({ success: true, submissionId });
   } catch (err) {
@@ -199,209 +286,182 @@ app.post('/submit', upload.any(), async (req, res) => {
   }
 });
 
-// === Get Submissions Route (Protected) ===
-// Use ?includeDeleted=true to include soft-deleted records (for super admin)
+// === Get Submissions (Protected) ===
 app.get('/api/submissions', requireAdminAuth, async (req, res) => {
   try {
     const includeDeleted = req.query.includeDeleted === 'true';
-    const result = await dynamoDB.scan({ TableName: 'OnboardingSubmissions' }).promise();
+    const sql = includeDeleted
+      ? 'SELECT * FROM submissions ORDER BY submitted_at DESC'
+      : 'SELECT * FROM submissions WHERE is_deleted = FALSE ORDER BY submitted_at DESC';
+    const { rows } = await pool.query(sql);
+    const submissions = rows.map(rowToSubmission);
 
-    let items = result.Items;
-
-    // Filter out deleted records unless includeDeleted is true
-    if (!includeDeleted) {
-      items = items.filter(item => !item.isDeleted);
-    }
-
-    const submissions = items.map(item => {
-      const documents = item.documents ? JSON.parse(item.documents) : {};
-      const files = [];
-
-      for (const field in documents) {
-        const fileArray = documents[field];
-        if (Array.isArray(fileArray)) {
-          fileArray.forEach(url => {
-            // Safely extract S3 object key
-            try {
-              const urlObj = new URL(url);
-              const key = urlObj.pathname.substring(1); // Remove leading slash
-              files.push({ key, field });
-            } catch {
-              // Invalid URL, skip
-            }
-          });
+    // Attach a signed download URL to each file server-side (one batch call), so the admin
+    // dashboard doesn't have to make a separate request per document.
+    const allKeys = submissions.flatMap((s) => s.files.map((f) => f.key));
+    if (allKeys.length > 0) {
+      try {
+        const urlMap = await storage.getSignedUrls(allKeys, API_BASE_URL);
+        for (const s of submissions) {
+          for (const f of s.files) f.url = urlMap[f.key] || null;
         }
+      } catch (err) {
+        console.error('Signed URL batch error:', err);
+        // Non-fatal: return submissions without URLs rather than failing the whole list.
       }
-
-      return {
-        ...item,
-        files
-      };
-    });
+    }
 
     res.json(submissions);
   } catch (err) {
-    console.error('DynamoDB error:', err);
+    console.error('DB error:', err);
     res.status(500).json({ error: 'Failed to fetch submissions' });
   }
 });
 
-// === Soft-Delete Submission Route (Protected) ===
+// === Soft-Delete Submission (Protected) ===
 app.post('/api/submissions/delete', requireAdminAuth, async (req, res) => {
   const { id } = req.body;
-
-  // Input validation
-  if (!id) {
-    return res.status(400).json({ error: 'Missing submission id' });
-  }
-
-  const params = {
-    TableName: 'OnboardingSubmissions',
-    Key: { id },
-    UpdateExpression: 'SET isDeleted = :deleted, deletedAt = :deletedAt',
-    ExpressionAttributeValues: {
-      ':deleted': true,
-      ':deletedAt': new Date().toISOString()
-    },
-    ReturnValues: 'UPDATED_NEW'
-  };
-
+  if (!id) return res.status(400).json({ error: 'Missing submission id' });
   try {
-    await dynamoDB.update(params).promise();
+    await pool.query(
+      'UPDATE submissions SET is_deleted = TRUE, deleted_at = now() WHERE id = $1',
+      [id]
+    );
     res.json({ success: true, message: 'Submission deleted successfully' });
   } catch (err) {
-    console.error('DynamoDB delete error:', err);
+    console.error('Delete error:', err);
     res.status(500).json({ error: 'Failed to delete submission' });
   }
 });
 
-// === Restore Submission Route (Protected - Super Admin only) ===
+// === Restore Submission (Protected - Super Admin) ===
 app.post('/api/submissions/restore', requireAdminAuth, async (req, res) => {
   const { id } = req.body;
-
-  // Input validation
-  if (!id) {
-    return res.status(400).json({ error: 'Missing submission id' });
-  }
-
-  const params = {
-    TableName: 'OnboardingSubmissions',
-    Key: { id },
-    UpdateExpression: 'SET isDeleted = :deleted, deletedAt = :deletedAt',
-    ExpressionAttributeValues: {
-      ':deleted': false,
-      ':deletedAt': null
-    },
-    ReturnValues: 'UPDATED_NEW'
-  };
-
+  if (!id) return res.status(400).json({ error: 'Missing submission id' });
   try {
-    await dynamoDB.update(params).promise();
+    await pool.query(
+      'UPDATE submissions SET is_deleted = FALSE, deleted_at = NULL WHERE id = $1',
+      [id]
+    );
     res.json({ success: true, message: 'Submission restored successfully' });
   } catch (err) {
-    console.error('DynamoDB restore error:', err);
+    console.error('Restore error:', err);
     res.status(500).json({ error: 'Failed to restore submission' });
   }
 });
 
-// === Get S3 Signed URL Route (Protected) ===
+// === Signed file URL (Protected) — replaces /api/s3-url ===
+// Kept the same path so the admin frontend works unchanged. Returns either a local
+// /api/file link or a provider signed URL (e.g. Supabase), transparently.
 app.get('/api/s3-url', requireAdminAuth, async (req, res) => {
   const { key } = req.query;
-
-  // Input validation
-  if (!key || typeof key !== 'string') {
+  if (!storage.isSafeKey(key)) {
     return res.status(400).json({ error: 'Missing or invalid file key' });
   }
-
-  // Prevent path traversal
-  if (key.includes('..') || key.startsWith('/')) {
-    return res.status(400).json({ error: 'Invalid file key' });
-  }
-
   try {
-    const url = await s3.getSignedUrlPromise('getObject', {
-      Bucket: process.env.S3_BUCKET,
-      Key: key,
-      Expires: 3600,
-      ResponseContentDisposition: 'attachment'
-    });
-    res.json({ url });
+    res.json({ url: await storage.getSignedUrl(key, API_BASE_URL) });
   } catch (err) {
-    console.error('S3 error:', err);
+    console.error('Signed URL error:', err);
     res.status(500).json({ error: 'Failed to generate URL' });
   }
 });
 
-// === Update Status Route (Protected) ===
+// === Download a file via signed token (local storage provider only) ===
+// When using a cloud provider, signed URLs point directly at the provider and this is unused.
+app.get('/api/file', (req, res) => {
+  if (!storage.servesLocalFiles) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const key = storage.verifySignedToken(req.query.token);
+  if (!key) return res.status(403).json({ error: 'Invalid or expired link' });
+  const filePath = storage.absolutePath(key);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  res.download(filePath, path.basename(key));
+});
+
+// === Update Submission Status (Protected) ===
 app.post('/api/update-status', requireAdminAuth, async (req, res) => {
   const { id, status } = req.body;
-
-  // Input validation
-  if (!id || !status) {
-    return res.status(400).json({ error: 'Missing id or status' });
-  }
-
-  const validStatuses = ['Pending', 'Approved', 'Rejected', 'Leave Approved', 'Leave Rejected'];
+  if (!id || !status) return res.status(400).json({ error: 'Missing id or status' });
+  const validStatuses = ['Pending', 'Approved', 'Rejected'];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid status value' });
   }
-
-  const params = {
-    TableName: 'OnboardingSubmissions',
-    Key: { id },
-    UpdateExpression: 'SET #s = :status',
-    ExpressionAttributeNames: {
-      '#s': 'status',
-    },
-    ExpressionAttributeValues: {
-      ':status': status,
-    },
-    ReturnValues: 'UPDATED_NEW'
-  };
-
   try {
-    await dynamoDB.update(params).promise();
+    await pool.query('UPDATE submissions SET status = $1 WHERE id = $2', [status, id]);
     res.json({ success: true });
   } catch (err) {
-    console.error('DynamoDB update error:', err);
+    console.error('Status update error:', err);
     res.status(500).json({ error: 'Failed to update status' });
   }
 });
 
-// === Submit Leave Request Route ===
+// === Submit Leave Request (employee) ===
 app.post('/api/leave-request', async (req, res) => {
   try {
-    const { employeeEmail, leaveType, fromDate, toDate, reason } = req.body;
-
-    // Input validation
+    const { employeeEmail, employeeName, leaveType, fromDate, toDate, reason } = req.body;
     if (!employeeEmail || !leaveType || !fromDate || !toDate) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-
     const leaveId = uuidv4();
-
-    const leaveRequest = {
-      id: leaveId,
-      employeeEmail,
-      leaveType,
-      fromDate,
-      toDate,
-      reason: reason || '',
-      status: 'Pending',
-      submittedAt: new Date().toISOString()
-    };
-
-    await dynamoDB.put({
-      TableName: 'LeaveRequests',
-      Item: leaveRequest
-    }).promise();
-
+    await pool.query(
+      `INSERT INTO leave_requests
+        (id, employee_email, employee_name, leave_type, from_date, to_date, reason, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'Pending')`,
+      [leaveId, employeeEmail, employeeName || null, leaveType, fromDate, toDate, reason || '']
+    );
     res.json({ success: true, leaveId });
   } catch (err) {
     console.error('Leave request error:', err);
     res.status(500).json({ error: 'Failed to submit leave request' });
   }
 });
+
+// === List Leave Requests (Protected) — NEW: admin leave tab had no data source ===
+app.get('/api/leave-requests', requireAdminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM leave_requests ORDER BY submitted_at DESC');
+    res.json(rows.map((r) => ({
+      id: r.id,
+      name: r.employee_name,
+      email: r.employee_email,
+      leaveType: r.leave_type,
+      from: r.from_date,
+      to: r.to_date,
+      reason: r.reason,
+      status: r.status,
+      submittedAt: r.submitted_at,
+    })));
+  } catch (err) {
+    console.error('Leave fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch leave requests' });
+  }
+});
+
+// === Approve/Reject Leave Request (Protected) — NEW ===
+app.post('/api/leave-status', requireAdminAuth, async (req, res) => {
+  const { id, status } = req.body;
+  if (!id || !status) return res.status(400).json({ error: 'Missing id or status' });
+  const validStatuses = ['Pending', 'Approved', 'Rejected'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status value' });
+  }
+  try {
+    await pool.query('UPDATE leave_requests SET status = $1 WHERE id = $2', [status, id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Leave status error:', err);
+    res.status(500).json({ error: 'Failed to update leave status' });
+  }
+});
+
+// Admin routes (create employee)
+const adminRoutes = require('./routes/admin');
+app.use('/api/admin', requireAdminAuth, adminRoutes);
+
+// Admin management routes (super admin only)
+const adminsRoutes = require('./routes/admins');
+app.use('/api/admins', requireSuperAdmin, adminsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -417,6 +477,11 @@ app.use((err, req, res, next) => {
 
 // === Start Server ===
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+initDb()
+  .then(() => {
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  })
+  .catch((err) => {
+    console.error('❌ Failed to initialize database:', err);
+    process.exit(1);
+  });
