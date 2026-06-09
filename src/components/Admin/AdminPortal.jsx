@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -32,6 +33,7 @@ import ChangePassword from './ChangePassword';
 import config from '../../config';
 
 const AdminPortal = () => {
+  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -308,12 +310,47 @@ const AdminPortal = () => {
           justifyContent: 'center',
           alignItems: 'center',
           height: '100vh',
-          background: 'linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%)',
+          bgcolor: 'background.default',
+          position: 'relative',
+          overflow: 'hidden',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            width: 600, height: 600,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(245,166,35,0.07) 0%, transparent 65%)',
+            top: '-20%', left: '-15%',
+          },
         }}
       >
-        <Paper elevation={3} sx={{ p: 4, width: 400 }}>
-          <Typography variant="h4" gutterBottom sx={{ mb: 3, textAlign: 'center' }}>
-            Admin Portal Login
+        <Paper elevation={3} sx={{
+          p: 4, width: 400,
+          background: 'rgba(18, 21, 30, 0.85)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: '18px',
+          position: 'relative', zIndex: 1,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2, mb: 3 }}>
+            <Box sx={{ width: 28, height: 28, bgcolor: 'primary.main', borderRadius: '6px', flexShrink: 0 }} />
+            <Typography sx={{
+              fontFamily: "'Outfit', sans-serif",
+              fontSize: 11, fontWeight: 600,
+              color: 'rgba(255,255,255,0.35)',
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+            }}>HRMS Admin</Typography>
+          </Box>
+          <Typography sx={{
+            fontFamily: "'Cormorant Garamond', serif",
+            fontSize: '30px', fontWeight: 600,
+            color: 'text.primary', mb: 0.5, letterSpacing: '-0.3px',
+          }}>
+            Admin sign in.
+          </Typography>
+          <Typography sx={{ fontSize: '13px', color: 'text.secondary', mb: 3 }}>
+            Enter your admin credentials to access the dashboard.
           </Typography>
           <form onSubmit={handleLogin}>
             <TextField
@@ -321,6 +358,7 @@ const AdminPortal = () => {
               label="Username"
               variant="outlined"
               margin="normal"
+              size="small"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
@@ -330,6 +368,7 @@ const AdminPortal = () => {
               type="password"
               variant="outlined"
               margin="normal"
+              size="small"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -338,12 +377,20 @@ const AdminPortal = () => {
               type="submit"
               variant="contained"
               color="primary"
-              sx={{ mt: 2 }}
+              sx={{ mt: 2.5, py: 1.3, fontWeight: 600, fontSize: '14px' }}
               disabled={loading}
             >
-              {loading ? <CircularProgress size={24} /> : 'Login'}
+              {loading ? <CircularProgress size={20} color="inherit" /> : 'Continue'}
             </Button>
           </form>
+          <Button
+            fullWidth
+            variant="text"
+            onClick={() => navigate('/')}
+            sx={{ mt: 1.5, color: 'text.secondary', fontSize: '13px' }}
+          >
+            ← Back to home
+          </Button>
         </Paper>
 
         <Snackbar

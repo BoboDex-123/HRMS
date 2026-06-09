@@ -63,17 +63,7 @@ const EmployeePortal = () => {
                   key={label}
                   selected={active}
                   onClick={() => navigate(path)}
-                  sx={{
-                    mx: 1,
-                    my: 0.5,
-                    borderRadius: 2,
-                    '&.Mui-selected': {
-                      backgroundColor: 'primary.main',
-                      color: 'white',
-                      '& .MuiListItemIcon-root': { color: 'white' },
-                      '&:hover': { backgroundColor: 'primary.dark' },
-                    },
-                  }}
+                  sx={{ mx: 1, my: 0.5, borderRadius: 2 }}
                 >
                   <ListItemIcon sx={{ minWidth: 40 }}>{icon}</ListItemIcon>
                   <ListItemText primary={label} primaryTypographyProps={{ fontWeight: active ? 600 : 400 }} />
