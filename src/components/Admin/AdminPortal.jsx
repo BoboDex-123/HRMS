@@ -8,13 +8,22 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogActions,
   TextField,
   Grid,
   Tabs,
   Tab,
   Snackbar,
   Alert,
+  Chip,
+  Divider,
 } from '@mui/material';
+import {
+  PeopleAlt as PeopleIcon,
+  HourglassEmpty as PendingIcon,
+  CheckCircle as ApprovedIcon,
+  Cancel as RejectedIcon,
+} from '@mui/icons-material';
 import EmployeeApprovals from './EmployeeApprovals';
 import LeaveApprovals from './LeaveApprovals';
 import CreateEmployee from './CreateEmployee';
@@ -289,7 +298,7 @@ const AdminPortal = () => {
       fetchSubmissions(savedToken, savedRole);
       fetchLeaveRequests(savedToken);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isAuthenticated) {
     return (
@@ -350,73 +359,109 @@ const AdminPortal = () => {
     );
   }
 
+  const pendingCount = submissions.filter((s) => !s.isDeleted && s.status === 'Pending').length;
+  const approvedCount = submissions.filter((s) => !s.isDeleted && s.status === 'Approved').length;
+  const pendingLeave = leaveRequests.filter((r) => r.status === 'Pending').length;
+
   return (
-    <Box sx={{ p: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h4">
-            {userRole === 'superadmin' ? 'Super Admin Dashboard' : 'Admin Dashboard'}
-          </Typography>
-          {userRole === 'superadmin' && (
-            <Typography variant="body2" color="text.secondary">
-              You can view and restore deleted submissions
+    <Box sx={{ minHeight: '100vh', backgroundColor: 'background.default' }}>
+      {/* Top bar */}
+      <Paper elevation={0} sx={{ px: 4, py: 2, borderBottom: '1px solid', borderColor: 'divider', borderRadius: 0 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="h5" fontWeight={700}>
+              {userRole === 'superadmin' ? 'Super Admin Dashboard' : 'Admin Dashboard'}
             </Typography>
-          )}
+            <Chip
+              label={userRole === 'superadmin' ? 'Super Admin' : 'Admin'}
+              size="small"
+              color={userRole === 'superadmin' ? 'secondary' : 'primary'}
+              sx={{ mt: 0.5 }}
+            />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button variant="outlined" size="small" onClick={() => setChangePasswordOpen(true)}>
+              Change Password
+            </Button>
+            <Button variant="outlined" size="small" color="error" onClick={handleLogout}>
+              Logout
+            </Button>
+          </Box>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" onClick={() => setChangePasswordOpen(true)}>
-            Change Password
-          </Button>
-          <Button variant="outlined" color="error" onClick={handleLogout}>
-            Logout
-          </Button>
-        </Box>
+      </Paper>
+
+      <Box sx={{ p: 4 }}>
+        {/* Stats bar */}
+        <Grid container spacing={2} sx={{ mb: 4 }}>
+          {[
+            { label: 'Total Submissions', value: submissions.filter(s => !s.isDeleted).length, icon: <PeopleIcon />, color: '#1976d2' },
+            { label: 'Pending Review', value: pendingCount, icon: <PendingIcon />, color: '#f59e0b' },
+            { label: 'Approved', value: approvedCount, icon: <ApprovedIcon />, color: '#10b981' },
+            { label: 'Leave Requests', value: pendingLeave, icon: <RejectedIcon />, color: '#7c3aed' },
+          ].map((stat) => (
+            <Grid item xs={6} sm={3} key={stat.label}>
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Box sx={{ color: stat.color }}>{stat.icon}</Box>
+                  <Typography variant="body2" color="text.secondary">{stat.label}</Typography>
+                </Box>
+                <Typography variant="h4" fontWeight={700} sx={{ color: stat.color }}>
+                  {loading ? '—' : stat.value}
+                </Typography>
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+
+        <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+          <Tabs value={tabIndex} onChange={handleTabChange} sx={{ px: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Tab label={`Employee Approvals${pendingCount > 0 ? ` (${pendingCount})` : ''}`} />
+            <Tab label={`Leave Approvals${pendingLeave > 0 ? ` (${pendingLeave})` : ''}`} />
+            <Tab label="Create Employee" />
+            {userRole === 'superadmin' && <Tab label="Manage Admins" />}
+          </Tabs>
+
+          <Box sx={{ p: 3 }}>
+            {tabIndex === 0 && (
+              <>
+                <TextField
+                  label="Search by name or email"
+                  variant="outlined"
+                  fullWidth
+                  size="small"
+                  sx={{ mb: 3 }}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
+                />
+                <EmployeeApprovals
+                  submissions={submissions}
+                  searchTerm={searchTerm}
+                  loading={loading}
+                  onViewDetails={viewDetails}
+                  onDeleteSubmission={deleteSubmission}
+                  onRestoreSubmission={restoreSubmission}
+                  userRole={userRole}
+                />
+              </>
+            )}
+
+            {tabIndex === 1 && (
+              <LeaveApprovals
+                leaveRequests={leaveRequests}
+                loading={loading}
+                onApproveLeave={(id) => updateLeaveStatus(id, 'Approved')}
+                onRejectLeave={(id) => updateLeaveStatus(id, 'Rejected')}
+              />
+            )}
+
+            {tabIndex === 2 && <CreateEmployee authToken={authToken} />}
+
+            {tabIndex === 3 && userRole === 'superadmin' && (
+              <ManageAdmins authToken={authToken} />
+            )}
+          </Box>
+        </Paper>
       </Box>
-
-      <Tabs value={tabIndex} onChange={handleTabChange} sx={{ mb: 3 }}>
-        <Tab label="Employee Approvals" />
-        <Tab label="Leave Approvals" />
-        <Tab label="Create Employee Login" />
-        {userRole === 'superadmin' && <Tab label="Manage Admins" />}
-      </Tabs>
-
-      {tabIndex === 0 && (
-        <TextField
-          label="Search by name or email"
-          variant="outlined"
-          fullWidth
-          sx={{ mb: 3 }}
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
-        />
-      )}
-
-      {tabIndex === 0 && (
-        <EmployeeApprovals
-          submissions={submissions}
-          searchTerm={searchTerm}
-          loading={loading}
-          onViewDetails={viewDetails}
-          onDeleteSubmission={deleteSubmission}
-          onRestoreSubmission={restoreSubmission}
-          userRole={userRole}
-        />
-      )}
-
-      {tabIndex === 1 && (
-        <LeaveApprovals
-          leaveRequests={leaveRequests}
-          loading={loading}
-          onApproveLeave={(id) => updateLeaveStatus(id, 'Approved')}
-          onRejectLeave={(id) => updateLeaveStatus(id, 'Rejected')}
-        />
-      )}
-
-      {tabIndex === 2 && <CreateEmployee authToken={authToken} />}
-
-      {tabIndex === 3 && userRole === 'superadmin' && (
-        <ManageAdmins authToken={authToken} />
-      )}
 
       <ChangePassword
         open={changePasswordOpen}
@@ -424,84 +469,112 @@ const AdminPortal = () => {
         authToken={authToken}
       />
 
-      <Dialog
-        open={Boolean(selectedSubmission)}
-        onClose={() => setSelectedSubmission(null)}
-        maxWidth="md"
-        fullWidth
-      >
+      {/* Submission Details Dialog */}
+      <Dialog open={Boolean(selectedSubmission)} onClose={() => setSelectedSubmission(null)} maxWidth="md" fullWidth>
         <DialogTitle>
-          Submission Details: {selectedSubmission?.firstName} {selectedSubmission?.lastName}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" fontWeight={600}>
+              {selectedSubmission?.firstName} {selectedSubmission?.lastName}
+            </Typography>
+            {selectedSubmission && (
+              <Chip
+                label={selectedSubmission.status}
+                size="small"
+                color={
+                  selectedSubmission.status === 'Approved' ? 'success' :
+                  selectedSubmission.status === 'Rejected' ? 'error' : 'warning'
+                }
+              />
+            )}
+          </Box>
         </DialogTitle>
         <DialogContent dividers>
           {selectedSubmission && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="h6" gutterBottom>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Personal Information
               </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography>
-                    <strong>Email:</strong> {selectedSubmission.email}
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography>
-                    <strong>Phone:</strong> {selectedSubmission.phone}
-                  </Typography>
-                </Grid>
-              </Grid>
-
-              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-                Documents
-              </Typography>
-              <Grid container spacing={2}>
-                {selectedSubmission.files?.map((file) => (
-                  <Grid item xs={12} md={6} key={file.key}>
-                    <Paper elevation={2} sx={{ p: 2 }}>
-                      <Typography variant="subtitle1">
-                        {file.key.split('/').pop()}
-                      </Typography>
-                      <Box sx={{ mt: 2 }}>
-                        <a
-                          href={fileUrls[file.key]}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ textDecoration: 'none' }}
-                        >
-                          <Button variant="contained">Download</Button>
-                        </a>
-                      </Box>
-                    </Paper>
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                {[
+                  { label: 'Email', value: selectedSubmission.email },
+                  { label: 'Phone', value: selectedSubmission.phone },
+                  { label: 'Date of Birth', value: selectedSubmission.dob || '—' },
+                  { label: 'PAN Number', value: selectedSubmission.panNumber || '—' },
+                  { label: 'Address', value: selectedSubmission.address || '—', full: true },
+                ].map(({ label, value, full }) => (
+                  <Grid item xs={12} sm={full ? 12 : 6} key={label}>
+                    <Typography variant="caption" color="text.secondary">{label}</Typography>
+                    <Typography variant="body2" fontWeight={500}>{value}</Typography>
                   </Grid>
                 ))}
               </Grid>
 
-              <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
-                <Button
-                  variant="contained"
-                  color="success"
-                  onClick={() => updateStatus(selectedSubmission.id, 'Approved')}
-                >
-                  Approve
-                </Button>
-                <Button
-                  variant="contained"
-                  color="error"
-                  onClick={() => updateStatus(selectedSubmission.id, 'Rejected')}
-                >
-                  Reject
-                </Button>
-              </Box>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Education
+              </Typography>
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                {[
+                  { label: 'School', value: selectedSubmission.schoolName || '—' },
+                  { label: 'College', value: selectedSubmission.collegeName || '—' },
+                  { label: 'University (PG)', value: selectedSubmission.universityName || '—' },
+                ].map(({ label, value }) => (
+                  <Grid item xs={12} sm={4} key={label}>
+                    <Typography variant="caption" color="text.secondary">{label}</Typography>
+                    <Typography variant="body2" fontWeight={500}>{value}</Typography>
+                  </Grid>
+                ))}
+              </Grid>
+
+              {selectedSubmission.files?.length > 0 && (
+                <>
+                  <Divider sx={{ mb: 2 }} />
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Documents ({selectedSubmission.files.length})
+                  </Typography>
+                  <Grid container spacing={2}>
+                    {selectedSubmission.files.map((file) => (
+                      <Grid item xs={12} sm={6} key={file.key}>
+                        <Paper variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                            {file.field} — {file.key.split('/').pop()}
+                          </Typography>
+                          <a href={fileUrls[file.key]} download target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+                            <Button size="small" variant="outlined">Download</Button>
+                          </a>
+                        </Paper>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </>
+              )}
             </Box>
           )}
         </DialogContent>
+        {selectedSubmission && selectedSubmission.status === 'Pending' && (
+          <DialogActions sx={{ px: 3, py: 2 }}>
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => updateStatus(selectedSubmission.id, 'Approved')}
+            >
+              Approve
+            </Button>
+            <Button
+              variant="outlined"
+              color="error"
+              onClick={() => updateStatus(selectedSubmission.id, 'Rejected')}
+            >
+              Reject
+            </Button>
+          </DialogActions>
+        )}
       </Dialog>
 
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
       >
         <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>

@@ -455,6 +455,31 @@ app.post('/api/leave-status', requireAdminAuth, async (req, res) => {
   }
 });
 
+// === Employee: view own leave requests ===
+app.get('/api/employee/leave-requests', requireEmployeeAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT lr.* FROM leave_requests lr
+       JOIN employees e ON e.email = lr.employee_email
+       WHERE e.username = $1
+       ORDER BY lr.submitted_at DESC`,
+      [req.user.username]
+    );
+    res.json(rows.map((r) => ({
+      id: r.id,
+      leaveType: r.leave_type,
+      from: r.from_date,
+      to: r.to_date,
+      reason: r.reason,
+      status: r.status,
+      submittedAt: r.submitted_at,
+    })));
+  } catch (err) {
+    console.error('Employee leave fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch leave requests' });
+  }
+});
+
 // Admin routes (create employee)
 const adminRoutes = require('./routes/admin');
 app.use('/api/admin', requireAdminAuth, adminRoutes);

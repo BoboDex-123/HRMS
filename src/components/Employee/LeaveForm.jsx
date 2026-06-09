@@ -88,25 +88,14 @@ const LeaveForm = () => {
   return (
     <Box
       component={motion.div}
-      initial={{ opacity: 0, y: 50 }}
+      initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        background: 'linear-gradient(135deg, #f8fafc 0%, #dbeafe 100%)',
-        padding: 2
-      }}
+      transition={{ duration: 0.4 }}
+      sx={{ maxWidth: 560 }}
     >
       <Paper
-        component={motion.div}
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 0.3 }}
-        elevation={6}
-        sx={{ padding: 4, borderRadius: 4, maxWidth: 500, width: '100%' }}
+        variant="outlined"
+        sx={{ padding: 4, borderRadius: 3 }}
       >
         <Typography variant="h5" gutterBottom sx={{ textAlign: 'center', fontWeight: 'bold' }}>
           Employee Leave Application
@@ -194,7 +183,6 @@ const LeaveForm = () => {
           </Button>
         </form>
       </Paper>
-
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
