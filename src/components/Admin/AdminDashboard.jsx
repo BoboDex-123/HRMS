@@ -13,12 +13,13 @@ import EmployeeApprovals from './EmployeeApprovals';
 import LeaveApprovals from './LeaveApprovals';
 import CreateEmployee from './CreateEmployee';
 import ManageAdmins from './ManageAdmins';
+import TimesheetReview from './TimesheetReview';
 import ChangePassword from './ChangePassword';
 import SubmissionDetailsDialog from './SubmissionDetailsDialog';
 import { apiFetch } from '../../api';
 
 // Route-synced tab definitions. Manage Admins is superadmin-only.
-const TAB_PATHS = ['/admin', '/admin/leaves', '/admin/create-employee', '/admin/manage-admins'];
+const TAB_PATHS = ['/admin', '/admin/leaves', '/admin/timesheets', '/admin/create-employee', '/admin/manage-admins'];
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -234,6 +235,7 @@ const AdminDashboard = () => {
           >
             <Tab label={`Employee Approvals${pendingCount > 0 ? ` (${pendingCount})` : ''}`} />
             <Tab label={`Leave Approvals${pendingLeave > 0 ? ` (${pendingLeave})` : ''}`} />
+            <Tab label="Timesheets" />
             <Tab label="Create Employee" />
             {userRole === 'superadmin' && <Tab label="Manage Admins" />}
           </Tabs>
@@ -276,6 +278,7 @@ const AdminDashboard = () => {
                   />
                 }
               />
+              <Route path="timesheets" element={<TimesheetReview />} />
               <Route path="create-employee" element={<CreateEmployee />} />
               <Route
                 path="manage-admins"

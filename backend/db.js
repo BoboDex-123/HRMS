@@ -70,6 +70,16 @@ async function initDb() {
       status          TEXT NOT NULL DEFAULT 'Pending',
       submitted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
+    CREATE TABLE IF NOT EXISTS timesheets (
+      id              UUID PRIMARY KEY,
+      employee_email  TEXT NOT NULL,
+      work_date       DATE NOT NULL,
+      hours           NUMERIC(4,2) NOT NULL,
+      project         TEXT,
+      description     TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
   console.log('✅ Database schema ready');
   await seedAdmins();

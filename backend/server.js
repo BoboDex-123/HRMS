@@ -578,6 +578,138 @@ app.get('/api/employee/dashboard', requireEmployeeAuth, async (req, res) => {
   }
 });
 
+// === Timesheets ===
+// Resolve the authenticated employee's email from the JWT username.
+async function getEmployeeEmail(username) {
+  const { rows } = await pool.query('SELECT email FROM employees WHERE username = $1', [username]);
+  return rows[0] ? rows[0].email : null;
+}
+
+// Employee: log hours for a day
+app.post('/api/employee/timesheets', requireEmployeeAuth, async (req, res) => {
+  try {
+    const { workDate, hours, project, description } = req.body;
+    if (!workDate || hours === undefined || hours === null) {
+      return res.status(400).json({ error: 'Work date and hours are required' });
+    }
+
+    const parsedHours = Number(hours);
+    if (Number.isNaN(parsedHours) || parsedHours <= 0 || parsedHours > 24) {
+      return res.status(400).json({ error: 'Hours must be between 0 and 24' });
+    }
+
+    const date = new Date(workDate);
+    if (Number.isNaN(date.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+    if (date > new Date()) {
+      return res.status(400).json({ error: 'Cannot log hours for a future date' });
+    }
+
+    const email = await getEmployeeEmail(req.user.username);
+    if (!email) return res.status(401).json({ error: 'Employee account not found' });
+
+    // A day's combined entries can't exceed 24 hours.
+    const { rows: dayRows } = await pool.query(
+      `SELECT COALESCE(SUM(hours), 0)::float AS total FROM timesheets
+       WHERE employee_email = $1 AND work_date = $2`,
+      [email, workDate]
+    );
+    if (dayRows[0].total + parsedHours > 24) {
+      return res.status(400).json({ error: `Only ${24 - dayRows[0].total} hours left for this date` });
+    }
+
+    const id = uuidv4();
+    await pool.query(
+      `INSERT INTO timesheets (id, employee_email, work_date, hours, project, description)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [id, email, workDate, parsedHours, project || null, description || null]
+    );
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('Timesheet create error:', err);
+    res.status(500).json({ error: 'Failed to save timesheet entry' });
+  }
+});
+
+// Employee: list own entries (most recent first, capped)
+app.get('/api/employee/timesheets', requireEmployeeAuth, async (req, res) => {
+  try {
+    const email = await getEmployeeEmail(req.user.username);
+    if (!email) return res.status(401).json({ error: 'Employee account not found' });
+
+    const { rows } = await pool.query(
+      `SELECT id, work_date, hours, project, description, created_at
+       FROM timesheets WHERE employee_email = $1
+       ORDER BY work_date DESC, created_at DESC LIMIT 200`,
+      [email]
+    );
+
+    // Hours logged in the current ISO week, for the summary card.
+    const { rows: weekRows } = await pool.query(
+      `SELECT COALESCE(SUM(hours), 0)::float AS total FROM timesheets
+       WHERE employee_email = $1
+         AND work_date >= date_trunc('week', now())::date`,
+      [email]
+    );
+
+    res.json({
+      weekTotal: weekRows[0].total,
+      entries: rows.map((r) => ({
+        id: r.id,
+        workDate: r.work_date,
+        hours: Number(r.hours),
+        project: r.project,
+        description: r.description,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (err) {
+    console.error('Timesheet fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch timesheets' });
+  }
+});
+
+// Employee: delete own entry (corrections)
+app.delete('/api/employee/timesheets/:id', requireEmployeeAuth, async (req, res) => {
+  try {
+    const email = await getEmployeeEmail(req.user.username);
+    if (!email) return res.status(401).json({ error: 'Employee account not found' });
+
+    const { rowCount } = await pool.query(
+      'DELETE FROM timesheets WHERE id = $1 AND employee_email = $2',
+      [req.params.id, email]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Entry not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Timesheet delete error:', err);
+    res.status(500).json({ error: 'Failed to delete entry' });
+  }
+});
+
+// Admin: view all timesheet entries
+app.get('/api/timesheets', requireAdminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.employee_email, t.work_date, t.hours, t.project, t.description, t.created_at
+       FROM timesheets t ORDER BY t.work_date DESC, t.created_at DESC LIMIT 1000`
+    );
+    res.json(rows.map((r) => ({
+      id: r.id,
+      email: r.employee_email,
+      workDate: r.work_date,
+      hours: Number(r.hours),
+      project: r.project,
+      description: r.description,
+      createdAt: r.created_at,
+    })));
+  } catch (err) {
+    console.error('Admin timesheet fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch timesheets' });
+  }
+});
+
 // Admin routes (create employee)
 const adminRoutes = require('./routes/admin');
 app.use('/api/admin', requireAdminAuth, adminRoutes);
