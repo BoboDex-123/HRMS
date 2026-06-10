@@ -4,10 +4,10 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Snackbar, Alert, CircularProgress, Chip
 } from '@mui/material';
-import config from '../../config';
+import { apiFetch } from '../../api';
 
 // Super-admin-only: create and manage admin accounts (replaces shared env credentials).
-const ManageAdmins = ({ authToken }) => {
+const ManageAdmins = () => {
   const [admins, setAdmins] = useState([]);
   const [form, setForm] = useState({ username: '', email: '', password: '', role: 'admin' });
   const [loading, setLoading] = useState(false);
@@ -15,21 +15,14 @@ const ManageAdmins = ({ authToken }) => {
 
   const showMessage = (message, severity = 'info') => setSnackbar({ open: true, message, severity });
 
-  const authHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${authToken}`,
-  }), [authToken]);
-
   const fetchAdmins = useCallback(async () => {
     try {
-      const res = await fetch(`${config.API_URL}/api/admins`, { headers: authHeaders() });
-      if (!res.ok) throw new Error('Failed to load admins');
-      setAdmins(await res.json());
+      setAdmins(await apiFetch('/api/admins', { auth: 'admin' }));
     } catch (err) {
       console.error(err);
       showMessage('Failed to load admins', 'error');
     }
-  }, [authHeaders]);
+  }, []);
 
   useEffect(() => { fetchAdmins(); }, [fetchAdmins]);
 
@@ -37,13 +30,11 @@ const ManageAdmins = ({ authToken }) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch(`${config.API_URL}/api/admins`, {
+      const data = await apiFetch('/api/admins', {
         method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(form),
+        auth: 'admin',
+        body: form,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create admin');
       showMessage(`Admin "${data.username}" created`, 'success');
       setForm({ username: '', email: '', password: '', role: 'admin' });
       fetchAdmins();
@@ -56,13 +47,11 @@ const ManageAdmins = ({ authToken }) => {
 
   const toggleActive = async (admin) => {
     try {
-      const res = await fetch(`${config.API_URL}/api/admins/${admin.id}`, {
+      const data = await apiFetch(`/api/admins/${admin.id}`, {
         method: 'PATCH',
-        headers: authHeaders(),
-        body: JSON.stringify({ is_active: !admin.is_active }),
+        auth: 'admin',
+        body: { is_active: !admin.is_active },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Update failed');
       showMessage(`${admin.username} ${data.is_active ? 'activated' : 'deactivated'}`, 'success');
       fetchAdmins();
     } catch (err) {
@@ -110,7 +99,7 @@ const ManageAdmins = ({ authToken }) => {
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
-            <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+            <TableRow>
               <TableCell>Username</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Role</TableCell>

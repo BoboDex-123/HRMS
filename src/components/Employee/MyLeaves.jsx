@@ -5,8 +5,7 @@ import {
 } from '@mui/material';
 import { EventNote as LeaveIcon } from '@mui/icons-material';
 import { motion } from 'framer-motion';
-import { getEmployeeToken } from '../../employeeAuth';
-import config from '../../config';
+import { apiFetch } from '../../api';
 
 const statusColor = (status) => {
   if (status === 'Approved') return 'success';
@@ -27,11 +26,7 @@ const MyLeaves = () => {
   useEffect(() => {
     const fetchLeaves = async () => {
       try {
-        const res = await fetch(`${config.API_URL}/api/employee/leave-requests`, {
-          headers: { Authorization: `Bearer ${getEmployeeToken()}` },
-        });
-        if (!res.ok) throw new Error('Failed to load leave requests');
-        setLeaves(await res.json());
+        setLeaves(await apiFetch('/api/employee/leave-requests', { auth: 'employee' }));
       } catch (err) {
         setError(err.message);
       } finally {

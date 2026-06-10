@@ -11,8 +11,8 @@ import {
   Alert,
   CircularProgress
 } from '@mui/material';
-import { getEmployeeEmail, getEmployeeToken } from '../../employeeAuth';
-import config from '../../config';
+import { getEmployeeEmail } from '../../employeeAuth';
+import { apiFetch } from '../../api';
 
 const LeaveForm = () => {
   const [formData, setFormData] = useState({
@@ -49,27 +49,18 @@ const LeaveForm = () => {
     setLoading(true);
 
     try {
-      const response = await fetch(`${config.API_URL}/api/leave-request`, {
+      const result = await apiFetch('/api/leave-request', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getEmployeeToken()}`
-        },
-        body: JSON.stringify({
+        auth: 'employee',
+        body: {
           employeeName: formData.name,
           leaveType: formData.leaveType,
           fromDate: formData.startDate,
           toDate: formData.endDate,
           reason: formData.reason
-        })
+        }
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to submit leave request');
-      }
-
-      const result = await response.json();
       if (result.success) {
         setSnackbar({ open: true, message: 'Leave application submitted successfully!', severity: 'success' });
         setFormData(prev => ({

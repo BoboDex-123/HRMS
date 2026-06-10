@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import {
   Box, Paper, TextField, Button, Typography, CircularProgress, Snackbar, Alert
 } from '@mui/material';
-import config from '../../config';
+import { apiFetch } from '../../api';
 
-const CreateEmployee = ({ authToken }) => {
+const CreateEmployee = () => {
   const [formData, setFormData] = useState({ username: '', email: '' });
   const [loading, setLoading] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
@@ -14,30 +14,25 @@ const CreateEmployee = ({ authToken }) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch(`${config.API_URL}/api/admin/create-employee`, {
+      const data = await apiFetch('/api/admin/create-employee', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify(formData),
+        auth: 'admin',
+        body: formData,
       });
-
-      const data = await res.json();
-      if (res.ok) {
-        setTempPassword(data.tempPassword || '');
-        setSnackbar({
-          open: true,
-          message: `Employee created. Temporary password: ${data.tempPassword}`,
-          severity: 'success',
-        });
-        setFormData({ username: '', email: '' });
-      } else {
-        setSnackbar({ open: true, message: data.message || 'Failed to create employee', severity: 'error' });
-      }
+      setTempPassword(data.tempPassword || '');
+      setSnackbar({
+        open: true,
+        message: `Employee created. Temporary password: ${data.tempPassword}`,
+        severity: 'success',
+      });
+      setFormData({ username: '', email: '' });
     } catch (err) {
       console.error(err);
-      setSnackbar({ open: true, message: 'Network error - unable to connect to server', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: err.status ? err.message : 'Network error - unable to connect to server',
+        severity: 'error',
+      });
     } finally {
       setLoading(false);
     }

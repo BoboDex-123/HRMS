@@ -30,14 +30,13 @@ import LeaveApprovals from './LeaveApprovals';
 import CreateEmployee from './CreateEmployee';
 import ManageAdmins from './ManageAdmins';
 import ChangePassword from './ChangePassword';
-import config from '../../config';
+import { apiFetch } from '../../api';
 
 const AdminPortal = () => {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authToken, setAuthToken] = useState('');
   const [userRole, setUserRole] = useState('admin'); // 'admin' or 'superadmin'
   const [submissions, setSubmissions] = useState([]);
   const [fileUrls, setFileUrls] = useState({});
@@ -61,28 +60,24 @@ const AdminPortal = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/auth/login`, {
+      const data = await apiFetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: { username, password },
       });
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setAuthToken(data.token);
+      if (data.success) {
         setUserRole(data.role || 'admin');
         setIsAuthenticated(true);
         sessionStorage.setItem('adminToken', data.token);
         sessionStorage.setItem('adminRole', data.role || 'admin');
-        fetchSubmissions(data.token, data.role || 'admin');
-        fetchLeaveRequests(data.token);
+        fetchSubmissions(data.role || 'admin');
+        fetchLeaveRequests();
       } else {
         showMessage(data.message || 'Login failed', 'error');
       }
     } catch (err) {
       console.error('Login error:', err);
-      showMessage('Unable to connect to server', 'error');
+      showMessage(err.status ? err.message : 'Unable to connect to server', 'error');
     } finally {
       setLoading(false);
     }
@@ -90,7 +85,6 @@ const AdminPortal = () => {
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    setAuthToken('');
     setUserRole('admin');
     setSubmissions([]);
     setFileUrls({});
@@ -98,17 +92,25 @@ const AdminPortal = () => {
     sessionStorage.removeItem('adminRole');
   };
 
-  const fetchLeaveRequests = async (token) => {
+  // Admin API call with shared session-expiry handling. Returns null after
+  // logging out on a 401 so callers can simply bail.
+  const adminCall = async (path, options = {}) => {
     try {
-      const response = await fetch(`${config.API_URL}/api/leave-requests`, {
-        headers: { 'Authorization': `Bearer ${token || authToken}` }
-      });
-      if (!response.ok) {
-        if (response.status === 401) return; // submissions fetch handles session expiry
-        throw new Error('Failed to fetch leave requests');
+      return await apiFetch(path, { ...options, auth: 'admin' });
+    } catch (err) {
+      if (err.status === 401) {
+        handleLogout();
+        showMessage('Session expired, please login again', 'warning');
+        return null;
       }
-      const data = await response.json();
-      setLeaveRequests(Array.isArray(data) ? data : []);
+      throw err;
+    }
+  };
+
+  const fetchLeaveRequests = async () => {
+    try {
+      const data = await adminCall('/api/leave-requests');
+      if (data) setLeaveRequests(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching leave requests:', err);
     }
@@ -116,57 +118,29 @@ const AdminPortal = () => {
 
   const updateLeaveStatus = async (id, newStatus) => {
     try {
-      const res = await fetch(`${config.API_URL}/api/leave-status`, {
+      const result = await adminCall('/api/leave-status', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({ id, status: newStatus }),
+        body: { id, status: newStatus },
       });
-      if (res.ok) {
-        setLeaveRequests((prev) =>
-          prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r))
-        );
-        showMessage(`Leave ${newStatus.toLowerCase()}`, 'success');
-      } else {
-        if (res.status === 401) {
-          handleLogout();
-          showMessage('Session expired, please login again', 'warning');
-          return;
-        }
-        showMessage('Failed to update leave status', 'error');
-      }
+      if (!result) return;
+      setLeaveRequests((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r))
+      );
+      showMessage(`Leave ${newStatus.toLowerCase()}`, 'success');
     } catch (err) {
       console.error('Leave status error:', err);
-      showMessage('Server error while updating leave status', 'error');
+      showMessage('Failed to update leave status', 'error');
     }
   };
 
-  const fetchSubmissions = async (token, role) => {
+  const fetchSubmissions = async (role) => {
     setLoading(true);
-    const currentRole = role || userRole;
-    const includeDeleted = currentRole === 'superadmin';
+    const includeDeleted = (role || userRole) === 'superadmin';
     try {
-      const url = includeDeleted
-        ? `${config.API_URL}/api/submissions?includeDeleted=true`
-        : `${config.API_URL}/api/submissions`;
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token || authToken}`
-        }
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          handleLogout();
-          showMessage('Session expired, please login again', 'warning');
-          return;
-        }
-        throw new Error('Failed to fetch submissions');
-      }
-
-      const data = await response.json();
+      const data = await adminCall(
+        includeDeleted ? '/api/submissions?includeDeleted=true' : '/api/submissions'
+      );
+      if (!data) return;
       const list = Array.isArray(data) ? data : data.Items || [];
       setSubmissions(list);
 
@@ -189,99 +163,58 @@ const AdminPortal = () => {
 
   const updateStatus = async (id, newStatus) => {
     try {
-      const res = await fetch(`${config.API_URL}/api/update-status`, {
+      const result = await adminCall('/api/update-status', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({ id, status: newStatus }),
+        body: { id, status: newStatus },
       });
-
-      if (res.ok) {
-        const updated = submissions.map((s) =>
-          s.id === id ? { ...s, status: newStatus } : s
-        );
-        setSubmissions(updated);
-        setSelectedSubmission(null);
-        showMessage(`Status updated to ${newStatus}`, 'success');
-      } else {
-        if (res.status === 401) {
-          handleLogout();
-          showMessage('Session expired, please login again', 'warning');
-          return;
-        }
-        showMessage('Failed to update status', 'error');
-      }
+      if (!result) return;
+      setSubmissions(submissions.map((s) =>
+        s.id === id ? { ...s, status: newStatus } : s
+      ));
+      setSelectedSubmission(null);
+      showMessage(`Status updated to ${newStatus}`, 'success');
     } catch (err) {
       console.error('Status update error:', err);
-      showMessage('Server error while updating status', 'error');
+      showMessage('Failed to update status', 'error');
     }
   };
 
   const deleteSubmission = async (id) => {
     try {
-      const res = await fetch(`${config.API_URL}/api/submissions/delete`, {
+      const result = await adminCall('/api/submissions/delete', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({ id }),
+        body: { id },
       });
-
-      if (res.ok) {
-        // For super admin, mark as deleted in local state; for regular admin, remove
-        if (userRole === 'superadmin') {
-          setSubmissions(submissions.map((s) =>
-            s.id === id ? { ...s, isDeleted: true, deletedAt: new Date().toISOString() } : s
-          ));
-        } else {
-          setSubmissions(submissions.filter((s) => s.id !== id));
-        }
-        showMessage('Submission deleted successfully', 'success');
+      if (!result) return;
+      // For super admin, mark as deleted in local state; for regular admin, remove
+      if (userRole === 'superadmin') {
+        setSubmissions(submissions.map((s) =>
+          s.id === id ? { ...s, isDeleted: true, deletedAt: new Date().toISOString() } : s
+        ));
       } else {
-        if (res.status === 401) {
-          handleLogout();
-          showMessage('Session expired, please login again', 'warning');
-          return;
-        }
-        showMessage('Failed to delete submission', 'error');
+        setSubmissions(submissions.filter((s) => s.id !== id));
       }
+      showMessage('Submission deleted successfully', 'success');
     } catch (err) {
       console.error('Delete error:', err);
-      showMessage('Server error while deleting submission', 'error');
+      showMessage('Failed to delete submission', 'error');
     }
   };
 
   const restoreSubmission = async (id) => {
     try {
-      const res = await fetch(`${config.API_URL}/api/submissions/restore`, {
+      const result = await adminCall('/api/submissions/restore', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({ id }),
+        body: { id },
       });
-
-      if (res.ok) {
-        // Update local state to mark as not deleted
-        setSubmissions(submissions.map((s) =>
-          s.id === id ? { ...s, isDeleted: false, deletedAt: null } : s
-        ));
-        showMessage('Submission restored successfully', 'success');
-      } else {
-        if (res.status === 401) {
-          handleLogout();
-          showMessage('Session expired, please login again', 'warning');
-          return;
-        }
-        showMessage('Failed to restore submission', 'error');
-      }
+      if (!result) return;
+      setSubmissions(submissions.map((s) =>
+        s.id === id ? { ...s, isDeleted: false, deletedAt: null } : s
+      ));
+      showMessage('Submission restored successfully', 'success');
     } catch (err) {
       console.error('Restore error:', err);
-      showMessage('Server error while restoring submission', 'error');
+      showMessage('Failed to restore submission', 'error');
     }
   };
 
@@ -294,11 +227,10 @@ const AdminPortal = () => {
     const savedToken = sessionStorage.getItem('adminToken');
     const savedRole = sessionStorage.getItem('adminRole') || 'admin';
     if (savedToken) {
-      setAuthToken(savedToken);
       setUserRole(savedRole);
       setIsAuthenticated(true);
-      fetchSubmissions(savedToken, savedRole);
-      fetchLeaveRequests(savedToken);
+      fetchSubmissions(savedRole);
+      fetchLeaveRequests();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -501,11 +433,9 @@ const AdminPortal = () => {
               />
             )}
 
-            {tabIndex === 2 && <CreateEmployee authToken={authToken} />}
+            {tabIndex === 2 && <CreateEmployee />}
 
-            {tabIndex === 3 && userRole === 'superadmin' && (
-              <ManageAdmins authToken={authToken} />
-            )}
+            {tabIndex === 3 && userRole === 'superadmin' && <ManageAdmins />}
           </Box>
         </Paper>
       </Box>
@@ -513,7 +443,6 @@ const AdminPortal = () => {
       <ChangePassword
         open={changePasswordOpen}
         onClose={() => setChangePasswordOpen(false)}
-        authToken={authToken}
       />
 
       {/* Submission Details Dialog */}

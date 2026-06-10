@@ -19,7 +19,7 @@ import {
     Container,
 } from '@mui/material';
 import { motion } from 'framer-motion';
-import config from '../../config';
+import { apiFetch } from '../../api';
 
 const steps = ['Personal Information', 'Education Details', 'Document Upload'];
 
@@ -141,17 +141,11 @@ const OnboardingForm = () => {
                     }
                 });
 
-                const response = await fetch(`${config.API_URL}/submit`, {
-                    method: "POST",
+                const result = await apiFetch('/submit', {
+                    method: 'POST',
                     body: formData
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Submission failed');
-                }
-
-                const result = await response.json();
                 if (result.success) {
                     setSubmitSuccess(true);
                 } else {

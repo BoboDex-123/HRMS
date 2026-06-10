@@ -8,9 +8,9 @@ import {
   Schedule as PendingIcon,
   Person as PersonIcon,
 } from '@mui/icons-material';
-import { getEmployeeEmail, getEmployeeToken } from '../../employeeAuth';
+import { getEmployeeEmail } from '../../employeeAuth';
 import { motion } from 'framer-motion';
-import config from '../../config';
+import { apiFetch } from '../../api';
 
 const statusChipColor = (status) => {
   if (status === 'Approved') return 'success';
@@ -80,10 +80,7 @@ const EmployeeHome = () => {
 
     const fetchDashboard = async () => {
       try {
-        const res = await fetch(`${config.API_URL}/api/employee/dashboard`, {
-          headers: { Authorization: `Bearer ${getEmployeeToken()}` },
-        });
-        if (res.ok) setDashboard(await res.json());
+        setDashboard(await apiFetch('/api/employee/dashboard', { auth: 'employee' }));
       } catch (err) {
         console.error('Dashboard fetch error:', err);
       } finally {

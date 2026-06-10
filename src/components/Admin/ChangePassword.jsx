@@ -3,10 +3,10 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, Alert, CircularProgress, Box
 } from '@mui/material';
-import config from '../../config';
+import { apiFetch } from '../../api';
 
 // Dialog for the logged-in admin to change their own password.
-const ChangePassword = ({ open, onClose, authToken }) => {
+const ChangePassword = ({ open, onClose }) => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -28,13 +28,11 @@ const ChangePassword = ({ open, onClose, authToken }) => {
 
     setLoading(true);
     try {
-      const res = await fetch(`${config.API_URL}/api/admin/change-password`, {
+      await apiFetch('/api/admin/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        auth: 'admin',
+        body: { currentPassword, newPassword },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to change password');
       setSuccess(true);
     } catch (err) {
       setError(err.message);

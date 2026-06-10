@@ -4,7 +4,7 @@ import {
   Box, TextField, Button, Typography, CircularProgress, Alert,
 } from '@mui/material';
 import { motion } from 'framer-motion';
-import config from '../../config';
+import { apiFetch } from '../../api';
 import { setEmployeeSession } from '../../employeeAuth';
 
 const EmployeeAuthLogin = () => {
@@ -21,13 +21,10 @@ const EmployeeAuthLogin = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${config.API_URL}/api/employee/login`, {
+      const data = await apiFetch('/api/employee/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: { username, password },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Login failed');
       if (data.mustChangePassword) {
         setChangeToken(data.changeToken);
         setNeedsNewPassword(true);
@@ -45,16 +42,11 @@ const EmployeeAuthLogin = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${config.API_URL}/api/employee/change-password`, {
+      const data = await apiFetch('/api/employee/change-password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${changeToken}`,
-        },
-        body: JSON.stringify({ newPassword }),
+        headers: { Authorization: `Bearer ${changeToken}` },
+        body: { newPassword },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Password update failed');
       setEmployeeSession({ token: data.token, email: data.email });
       navigate('/employee-portal');
     } catch (err) {
