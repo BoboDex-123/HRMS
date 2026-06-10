@@ -4,6 +4,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../db');
+const { sendEmail, template } = require('../mailer');
 
 // Generate a readable temporary password the admin hands to the new employee.
 function genTempPassword() {
@@ -34,6 +35,18 @@ router.post('/create-employee', async (req, res) => {
 
     // Return the temp password so the admin can share it with the employee.
     res.json({ success: true, tempPassword });
+
+    // Fire-and-forget credentials email (no-op until a mail provider key is set).
+    sendEmail({
+      to: email,
+      subject: 'Your HRMS account is ready',
+      html: template('Welcome to HRMS', [
+        `Your employee account has been created.`,
+        `<strong>Username:</strong> ${username}`,
+        `<strong>Temporary password:</strong> ${tempPassword}`,
+        `You'll be asked to set a new password on first login.`,
+      ]),
+    });
   } catch (err) {
     console.error('❌ Error creating employee:', err);
     res.status(500).json({ message: 'Failed to create employee' });

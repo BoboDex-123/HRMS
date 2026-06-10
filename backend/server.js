@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 
 const { pool, initDb } = require('./db');
 const storage = require('./storage');
+const { sendEmail, template } = require('./mailer');
 const {
   createToken,
   requireAdminAuth,
@@ -388,8 +389,25 @@ app.post('/api/update-status', requireAdminAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid status value' });
   }
   try {
-    await pool.query('UPDATE submissions SET status = $1 WHERE id = $2', [status, id]);
+    const { rows } = await pool.query(
+      'UPDATE submissions SET status = $1 WHERE id = $2 RETURNING email, first_name',
+      [status, id]
+    );
     res.json({ success: true });
+
+    // Fire-and-forget onboarding decision email (no-op until a provider key is set).
+    if (rows[0] && (status === 'Approved' || status === 'Rejected')) {
+      sendEmail({
+        to: rows[0].email,
+        subject: `Your onboarding was ${status.toLowerCase()}`,
+        html: template(`Onboarding ${status.toLowerCase()}`, [
+          `Hi ${rows[0].first_name || ''},`,
+          status === 'Approved'
+            ? 'Your onboarding submission has been <strong>approved</strong>. Welcome aboard!'
+            : 'Your onboarding submission was <strong>rejected</strong>. Please contact HR for details.',
+        ]),
+      });
+    }
   } catch (err) {
     console.error('Status update error:', err);
     res.status(500).json({ error: 'Failed to update status' });
@@ -475,13 +493,28 @@ app.post('/api/leave-status', requireAdminAuth, async (req, res) => {
   }
   const note = typeof comment === 'string' ? comment.trim().slice(0, 500) : '';
   try {
-    await pool.query(
+    const { rows } = await pool.query(
       `UPDATE leave_requests
        SET status = $1, decision_comment = $2, decided_at = now()
-       WHERE id = $3`,
+       WHERE id = $3
+       RETURNING employee_email, leave_type, from_date, to_date`,
       [status, note || null, id]
     );
     res.json({ success: true });
+
+    // Fire-and-forget decision email (no-op until a mail provider key is set).
+    if (rows[0] && (status === 'Approved' || status === 'Rejected')) {
+      const r = rows[0];
+      sendEmail({
+        to: r.employee_email,
+        subject: `Your leave request was ${status.toLowerCase()}`,
+        html: template(`Leave ${status.toLowerCase()}`, [
+          `Your <strong>${r.leave_type || ''}</strong> leave from <strong>${r.from_date}</strong> to <strong>${r.to_date}</strong> has been <strong>${status.toLowerCase()}</strong>.`,
+          ...(note ? [`<strong>Note from HR:</strong> ${note}`] : []),
+          `You can view the details in the HRMS portal under My Leave Requests.`,
+        ]),
+      });
+    }
   } catch (err) {
     console.error('Leave status error:', err);
     res.status(500).json({ error: 'Failed to update leave status' });
