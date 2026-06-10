@@ -456,6 +456,8 @@ app.get('/api/leave-requests', requireAdminAuth, async (req, res) => {
       reason: r.reason,
       status: r.status,
       submittedAt: r.submitted_at,
+      decisionComment: r.decision_comment,
+      decidedAt: r.decided_at,
     })));
   } catch (err) {
     console.error('Leave fetch error:', err);
@@ -465,14 +467,20 @@ app.get('/api/leave-requests', requireAdminAuth, async (req, res) => {
 
 // === Approve/Reject Leave Request (Protected) — NEW ===
 app.post('/api/leave-status', requireAdminAuth, async (req, res) => {
-  const { id, status } = req.body;
+  const { id, status, comment } = req.body;
   if (!id || !status) return res.status(400).json({ error: 'Missing id or status' });
   const validStatuses = ['Pending', 'Approved', 'Rejected'];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid status value' });
   }
+  const note = typeof comment === 'string' ? comment.trim().slice(0, 500) : '';
   try {
-    await pool.query('UPDATE leave_requests SET status = $1 WHERE id = $2', [status, id]);
+    await pool.query(
+      `UPDATE leave_requests
+       SET status = $1, decision_comment = $2, decided_at = now()
+       WHERE id = $3`,
+      [status, note || null, id]
+    );
     res.json({ success: true });
   } catch (err) {
     console.error('Leave status error:', err);
@@ -498,6 +506,8 @@ app.get('/api/employee/leave-requests', requireEmployeeAuth, async (req, res) =>
       reason: r.reason,
       status: r.status,
       submittedAt: r.submitted_at,
+      decisionComment: r.decision_comment,
+      decidedAt: r.decided_at,
     })));
   } catch (err) {
     console.error('Employee leave fetch error:', err);

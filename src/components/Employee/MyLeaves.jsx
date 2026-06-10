@@ -101,6 +101,11 @@ const MyLeaves = () => {
                       size="small"
                       color={statusColor(leave.status)}
                     />
+                    {leave.decisionComment && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, maxWidth: 200 }}>
+                        Note: {leave.decisionComment}
+                      </Typography>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

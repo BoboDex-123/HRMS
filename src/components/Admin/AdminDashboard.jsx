@@ -111,14 +111,16 @@ const AdminDashboard = () => {
     }
   };
 
-  const updateLeaveStatus = async (id, newStatus) => {
+  const updateLeaveStatus = async (id, newStatus, comment) => {
     try {
       const result = await adminCall('/api/leave-status', {
         method: 'POST',
-        body: { id, status: newStatus },
+        body: { id, status: newStatus, comment },
       });
       if (!result) return;
-      setLeaveRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r)));
+      setLeaveRequests((prev) => prev.map((r) =>
+        r.id === id ? { ...r, status: newStatus, decisionComment: comment || null } : r
+      ));
       showMessage(`Leave ${newStatus.toLowerCase()}`, 'success');
     } catch (err) {
       console.error('Leave status error:', err);
@@ -273,8 +275,8 @@ const AdminDashboard = () => {
                   <LeaveApprovals
                     leaveRequests={leaveRequests}
                     loading={loading}
-                    onApproveLeave={(id) => updateLeaveStatus(id, 'Approved')}
-                    onRejectLeave={(id) => updateLeaveStatus(id, 'Rejected')}
+                    onApproveLeave={(id, comment) => updateLeaveStatus(id, 'Approved', comment)}
+                    onRejectLeave={(id, comment) => updateLeaveStatus(id, 'Rejected', comment)}
                   />
                 }
               />

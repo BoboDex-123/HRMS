@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Button, Box, Typography, Chip, TablePagination
+  Paper, Button, Box, Typography, Chip, TablePagination,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField,
 } from '@mui/material';
 import { EventNote as LeaveIcon } from '@mui/icons-material';
 
@@ -19,6 +20,21 @@ const formatDate = (dateStr) => {
 const LeaveApprovals = ({ leaveRequests, loading, onApproveLeave, onRejectLeave }) => {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  // { request, action: 'Approved' | 'Rejected' } while the note dialog is open
+  const [decision, setDecision] = useState(null);
+  const [comment, setComment] = useState('');
+
+  const openDecision = (request, action) => {
+    setDecision({ request, action });
+    setComment('');
+  };
+
+  const confirmDecision = () => {
+    if (!decision) return;
+    if (decision.action === 'Approved') onApproveLeave(decision.request.id, comment);
+    else onRejectLeave(decision.request.id, comment);
+    setDecision(null);
+  };
 
   if (!loading && (!leaveRequests || leaveRequests.length === 0)) {
     return (
@@ -66,6 +82,11 @@ const LeaveApprovals = ({ leaveRequests, loading, onApproveLeave, onRejectLeave 
                   size="small"
                   color={statusColor(request.status)}
                 />
+                {request.decisionComment && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, maxWidth: 180 }}>
+                    Note: {request.decisionComment}
+                  </Typography>
+                )}
               </TableCell>
               <TableCell>
                 {request.status === 'Pending' ? (
@@ -74,7 +95,7 @@ const LeaveApprovals = ({ leaveRequests, loading, onApproveLeave, onRejectLeave 
                       size="small"
                       variant="contained"
                       color="success"
-                      onClick={() => onApproveLeave(request.id)}
+                      onClick={() => openDecision(request, 'Approved')}
                     >
                       Approve
                     </Button>
@@ -82,7 +103,7 @@ const LeaveApprovals = ({ leaveRequests, loading, onApproveLeave, onRejectLeave 
                       size="small"
                       variant="outlined"
                       color="error"
-                      onClick={() => onRejectLeave(request.id)}
+                      onClick={() => openDecision(request, 'Rejected')}
                     >
                       Reject
                     </Button>
@@ -104,6 +125,35 @@ const LeaveApprovals = ({ leaveRequests, loading, onApproveLeave, onRejectLeave 
         onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
         rowsPerPageOptions={[10, 25, 50]}
       />
+
+      <Dialog open={Boolean(decision)} onClose={() => setDecision(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          {decision?.action === 'Approved' ? 'Approve' : 'Reject'} leave for {decision?.request?.name || decision?.request?.email}?
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            label="Note to employee (optional)"
+            placeholder={decision?.action === 'Rejected' ? 'e.g. Overlaps with the release window' : 'e.g. Enjoy your time off'}
+            fullWidth
+            multiline
+            rows={2}
+            margin="dense"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            inputProps={{ maxLength: 500 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDecision(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color={decision?.action === 'Approved' ? 'success' : 'error'}
+            onClick={confirmDecision}
+          >
+            {decision?.action === 'Approved' ? 'Approve' : 'Reject'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </TableContainer>
   );
 };

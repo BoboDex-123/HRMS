@@ -80,6 +80,9 @@ async function initDb() {
       description     TEXT,
       created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
+    ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS decision_comment TEXT;
+    ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ;
   `);
   console.log('✅ Database schema ready');
   await seedAdmins();
