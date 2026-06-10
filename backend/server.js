@@ -397,18 +397,43 @@ app.post('/api/update-status', requireAdminAuth, async (req, res) => {
 });
 
 // === Submit Leave Request (employee) ===
-app.post('/api/leave-request', async (req, res) => {
+// Identity comes from the JWT, never from the request body — otherwise anyone
+// could file leave requests on behalf of any employee.
+app.post('/api/leave-request', requireEmployeeAuth, async (req, res) => {
   try {
-    const { employeeEmail, employeeName, leaveType, fromDate, toDate, reason } = req.body;
-    if (!employeeEmail || !leaveType || !fromDate || !toDate) {
+    const { employeeName, leaveType, fromDate, toDate, reason } = req.body;
+    if (!leaveType || !fromDate || !toDate) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    const validLeaveTypes = ['Sick', 'Casual', 'Vacation'];
+    if (!validLeaveTypes.includes(leaveType)) {
+      return res.status(400).json({ error: 'Invalid leave type' });
+    }
+
+    const from = new Date(fromDate);
+    const to = new Date(toDate);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+    if (to < from) {
+      return res.status(400).json({ error: 'End date cannot be before start date' });
+    }
+
+    const { rows } = await pool.query(
+      'SELECT email FROM employees WHERE username = $1',
+      [req.user.username]
+    );
+    if (!rows[0]) {
+      return res.status(401).json({ error: 'Employee account not found' });
+    }
+
     const leaveId = uuidv4();
     await pool.query(
       `INSERT INTO leave_requests
         (id, employee_email, employee_name, leave_type, from_date, to_date, reason, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'Pending')`,
-      [leaveId, employeeEmail, employeeName || null, leaveType, fromDate, toDate, reason || '']
+      [leaveId, rows[0].email, employeeName || null, leaveType, fromDate, toDate, reason || '']
     );
     res.json({ success: true, leaveId });
   } catch (err) {

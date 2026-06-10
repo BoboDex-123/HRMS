@@ -11,7 +11,7 @@ import {
   Alert,
   CircularProgress
 } from '@mui/material';
-import { getEmployeeEmail } from '../../employeeAuth';
+import { getEmployeeEmail, getEmployeeToken } from '../../employeeAuth';
 import config from '../../config';
 
 const LeaveForm = () => {
@@ -40,16 +40,22 @@ const LeaveForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (formData.endDate < formData.startDate) {
+      setSnackbar({ open: true, message: 'End date cannot be before start date', severity: 'error' });
+      return;
+    }
+
     setLoading(true);
 
     try {
       const response = await fetch(`${config.API_URL}/api/leave-request`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getEmployeeToken()}`
         },
         body: JSON.stringify({
-          employeeEmail: formData.email,
           employeeName: formData.name,
           leaveType: formData.leaveType,
           fromDate: formData.startDate,
