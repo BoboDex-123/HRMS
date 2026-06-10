@@ -8,11 +8,13 @@ import { useTheme } from '@mui/material/styles';
 import {
   Home as HomeIcon, EventNote as LeaveIcon, Logout as LogoutIcon,
   ListAlt as MyLeavesIcon, Menu as MenuIcon, AccessTime as TimesheetIcon,
+  Person as ProfileIcon,
 } from '@mui/icons-material';
 import EmployeeHome from './EmployeeHome';
 import LeaveForm from './LeaveForm';
 import MyLeaves from './MyLeaves';
 import Timesheet from './Timesheet';
+import MyProfile from './MyProfile';
 import { clearEmployeeSession, getEmployeeEmail } from '../../employeeAuth';
 
 const drawerWidth = 240;
@@ -36,6 +38,7 @@ const EmployeePortal = () => {
     { label: 'Apply for Leave', icon: <LeaveIcon />, path: '/employee-portal/leave' },
     { label: 'My Leave Requests', icon: <MyLeavesIcon />, path: '/employee-portal/my-leaves' },
     { label: 'Timesheet', icon: <TimesheetIcon />, path: '/employee-portal/timesheet' },
+    { label: 'My Profile', icon: <ProfileIcon />, path: '/employee-portal/profile' },
   ];
 
   const handleNavigate = (path) => {
@@ -119,6 +122,7 @@ const EmployeePortal = () => {
           <Route path="leave" element={<LeaveForm />} />
           <Route path="my-leaves" element={<MyLeaves />} />
           <Route path="timesheet" element={<Timesheet />} />
+          <Route path="profile" element={<MyProfile />} />
         </Routes>
       </Box>
     </Box>

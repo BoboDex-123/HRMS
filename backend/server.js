@@ -593,6 +593,87 @@ app.get('/api/employee/dashboard', requireEmployeeAuth, async (req, res) => {
   }
 });
 
+// === Employee profile ===
+// Account info + latest onboarding submission, with signed document URLs.
+app.get('/api/employee/profile', requireEmployeeAuth, async (req, res) => {
+  try {
+    const { rows: empRows } = await pool.query(
+      'SELECT username, email, created_at FROM employees WHERE username = $1',
+      [req.user.username]
+    );
+    if (!empRows[0]) return res.status(401).json({ error: 'Employee account not found' });
+    const employee = empRows[0];
+
+    const { rows: subRows } = await pool.query(
+      `SELECT * FROM submissions WHERE email = $1 AND is_deleted = FALSE
+       ORDER BY submitted_at DESC LIMIT 1`,
+      [employee.email]
+    );
+
+    let submission = null;
+    if (subRows[0]) {
+      submission = rowToSubmission(subRows[0]);
+      const keys = submission.files.map((f) => f.key);
+      if (keys.length > 0) {
+        try {
+          const urlMap = await storage.getSignedUrls(keys, API_BASE_URL);
+          for (const f of submission.files) f.url = urlMap[f.key] || null;
+        } catch (err) {
+          console.error('Profile signed URL error:', err);
+        }
+      }
+    }
+
+    res.json({
+      username: employee.username,
+      email: employee.email,
+      memberSince: employee.created_at,
+      submission,
+    });
+  } catch (err) {
+    console.error('Profile fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+// Employees may update their own contact details only; HR owns the rest.
+app.patch('/api/employee/profile', requireEmployeeAuth, async (req, res) => {
+  try {
+    const { phone, address } = req.body;
+    if (phone === undefined && address === undefined) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    const email = await getEmployeeEmail(req.user.username);
+    if (!email) return res.status(401).json({ error: 'Employee account not found' });
+
+    const { rows } = await pool.query(
+      `SELECT id FROM submissions WHERE email = $1 AND is_deleted = FALSE
+       ORDER BY submitted_at DESC LIMIT 1`,
+      [email]
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ error: 'Complete onboarding first' });
+    }
+
+    await pool.query(
+      `UPDATE submissions SET
+         phone = COALESCE($1, phone),
+         address = COALESCE($2, address)
+       WHERE id = $3`,
+      [
+        phone !== undefined ? String(phone).trim().slice(0, 20) : null,
+        address !== undefined ? String(address).trim().slice(0, 500) : null,
+        rows[0].id,
+      ]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Profile update error:', err);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
 // === Holidays ===
 // Admin-managed company holiday calendar; employees read it for leave planning.
 app.get('/api/holidays', requireAdminAuth, async (req, res) => {
