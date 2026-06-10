@@ -505,6 +505,79 @@ app.get('/api/employee/leave-requests', requireEmployeeAuth, async (req, res) =>
   }
 });
 
+// === Employee: dashboard stats (leave balance, pending count, recent activity) ===
+// Annual allocation is a policy knob, not per-employee data — configure via env.
+const ANNUAL_LEAVE_DAYS = parseInt(process.env.ANNUAL_LEAVE_DAYS, 10) || 24;
+
+app.get('/api/employee/dashboard', requireEmployeeAuth, async (req, res) => {
+  try {
+    const { rows: empRows } = await pool.query(
+      'SELECT email FROM employees WHERE username = $1',
+      [req.user.username]
+    );
+    if (!empRows[0]) {
+      return res.status(401).json({ error: 'Employee account not found' });
+    }
+    const email = empRows[0].email;
+
+    const [leaveAgg, recentLeaves, submission] = await Promise.all([
+      // Days used this year (approved, inclusive of both endpoints) + pending count
+      pool.query(
+        `SELECT
+           COALESCE(SUM(
+             CASE WHEN status = 'Approved'
+                  AND date_part('year', from_date::date) = date_part('year', now())
+             THEN (to_date::date - from_date::date) + 1 ELSE 0 END
+           ), 0)::int AS days_used,
+           COUNT(*) FILTER (WHERE status = 'Pending')::int AS pending_count
+         FROM leave_requests WHERE employee_email = $1`,
+        [email]
+      ),
+      pool.query(
+        `SELECT leave_type, status, submitted_at FROM leave_requests
+         WHERE employee_email = $1 ORDER BY submitted_at DESC LIMIT 5`,
+        [email]
+      ),
+      pool.query(
+        `SELECT status, submitted_at FROM submissions
+         WHERE email = $1 AND is_deleted = FALSE
+         ORDER BY submitted_at DESC LIMIT 1`,
+        [email]
+      ),
+    ]);
+
+    const { days_used, pending_count } = leaveAgg.rows[0];
+
+    const activity = recentLeaves.rows.map((r) => ({
+      type: 'leave',
+      label: `${r.leave_type || 'Leave'} request`,
+      status: r.status,
+      at: r.submitted_at,
+    }));
+    if (submission.rows[0]) {
+      activity.push({
+        type: 'onboarding',
+        label: 'Onboarding submission',
+        status: submission.rows[0].status,
+        at: submission.rows[0].submitted_at,
+      });
+    }
+    activity.sort((a, b) => new Date(b.at) - new Date(a.at));
+
+    res.json({
+      leaveAllowance: ANNUAL_LEAVE_DAYS,
+      leaveDaysUsed: days_used,
+      leaveBalance: Math.max(ANNUAL_LEAVE_DAYS - days_used, 0),
+      pendingRequests: pending_count,
+      onboardingStatus: submission.rows[0] ? submission.rows[0].status : null,
+      recentActivity: activity.slice(0, 5),
+    });
+  } catch (err) {
+    console.error('Employee dashboard error:', err);
+    res.status(500).json({ error: 'Failed to fetch dashboard data' });
+  }
+});
+
 // Admin routes (create employee)
 const adminRoutes = require('./routes/admin');
 app.use('/api/admin', requireAdminAuth, adminRoutes);

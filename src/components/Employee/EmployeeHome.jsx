@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, Paper, Grid, Card, CardContent, Button, Chip } from '@mui/material';
+import { Box, Typography, Paper, Grid, Card, CardContent, Button, Chip, Skeleton } from '@mui/material';
 import {
   Assignment as OnboardingIcon,
   EventNote as LeaveIcon,
@@ -8,10 +8,22 @@ import {
   Schedule as PendingIcon,
   Person as PersonIcon,
 } from '@mui/icons-material';
-import { getEmployeeEmail } from '../../employeeAuth';
+import { getEmployeeEmail, getEmployeeToken } from '../../employeeAuth';
 import { motion } from 'framer-motion';
+import config from '../../config';
 
-const StatCard = ({ title, value, subtitle, icon, color, delay }) => (
+const statusChipColor = (status) => {
+  if (status === 'Approved') return 'success';
+  if (status === 'Rejected') return 'error';
+  return 'warning';
+};
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+};
+
+const StatCard = ({ title, value, subtitle, icon, color, delay, loading }) => (
   <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
@@ -31,27 +43,24 @@ const StatCard = ({ title, value, subtitle, icon, color, delay }) => (
     >
       <CardContent sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
+          <Box sx={{ minWidth: 0 }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
               {title}
             </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 700, color, mb: 1 }}>
-              {value}
-            </Typography>
-            {subtitle && (
+            {loading ? (
+              <Skeleton width={64} height={42} />
+            ) : (
+              <Typography variant="h4" sx={{ fontWeight: 700, color, mb: 1 }}>
+                {value}
+              </Typography>
+            )}
+            {subtitle && !loading && (
               <Typography variant="body2" color="text.secondary">
                 {subtitle}
               </Typography>
             )}
           </Box>
-          <Box
-            sx={{
-              p: 1.5,
-              borderRadius: 2,
-              backgroundColor: `${color}15`,
-              color,
-            }}
-          >
+          <Box sx={{ p: 1.5, borderRadius: 2, backgroundColor: `${color}15`, color }}>
             {icon}
           </Box>
         </Box>
@@ -63,10 +72,30 @@ const StatCard = ({ title, value, subtitle, icon, color, delay }) => (
 const EmployeeHome = () => {
   const navigate = useNavigate();
   const [userName, setUserName] = useState('');
+  const [dashboard, setDashboard] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setUserName(getEmployeeEmail() || 'Employee');
+
+    const fetchDashboard = async () => {
+      try {
+        const res = await fetch(`${config.API_URL}/api/employee/dashboard`, {
+          headers: { Authorization: `Bearer ${getEmployeeToken()}` },
+        });
+        if (res.ok) setDashboard(await res.json());
+      } catch (err) {
+        console.error('Dashboard fetch error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchDashboard();
   }, []);
+
+  const onboarding = dashboard?.onboardingStatus;
+  const onboardingValue = onboarding || 'Not started';
+  const onboardingColor = onboarding === 'Approved' ? '#22d3a3' : onboarding === 'Rejected' ? '#f87171' : '#fbbf24';
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
@@ -92,31 +121,34 @@ const EmployeeHome = () => {
         <Grid item xs={12} sm={6} md={4}>
           <StatCard
             title="Onboarding Status"
-            value="Complete"
-            subtitle="All documents verified"
-            icon={<CheckIcon />}
-            color="#10b981"
+            value={onboardingValue}
+            subtitle={onboarding === 'Approved' ? 'All documents verified' : onboarding ? 'Under review' : 'Submit your documents'}
+            icon={onboarding === 'Approved' ? <CheckIcon /> : <OnboardingIcon />}
+            color={onboardingColor}
             delay={0.1}
+            loading={loading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
           <StatCard
             title="Leave Balance"
-            value="12"
-            subtitle="Days remaining this year"
+            value={dashboard ? dashboard.leaveBalance : '—'}
+            subtitle={dashboard ? `of ${dashboard.leaveAllowance} days this year` : ''}
             icon={<LeaveIcon />}
-            color="#1976d2"
+            color="#f5a623"
             delay={0.2}
+            loading={loading}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
           <StatCard
             title="Pending Requests"
-            value="1"
+            value={dashboard ? dashboard.pendingRequests : '—'}
             subtitle="Awaiting approval"
             icon={<PendingIcon />}
-            color="#f59e0b"
+            color="#818cf8"
             delay={0.3}
+            loading={loading}
           />
         </Grid>
       </Grid>
@@ -164,20 +196,33 @@ const EmployeeHome = () => {
               <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
                 Recent Activity
               </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2">Leave request submitted</Typography>
-                  <Chip label="Pending" size="small" color="warning" />
+              {loading && (
+                <>
+                  <Skeleton height={32} sx={{ mb: 1 }} />
+                  <Skeleton height={32} sx={{ mb: 1 }} />
+                  <Skeleton height={32} />
+                </>
+              )}
+              {!loading && (!dashboard || dashboard.recentActivity.length === 0) && (
+                <Typography variant="body2" color="text.secondary">
+                  No activity yet. Submit a leave request or complete onboarding to get started.
+                </Typography>
+              )}
+              {!loading && dashboard && dashboard.recentActivity.length > 0 && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {dashboard.recentActivity.map((item, i) => (
+                    <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2">
+                        {item.label}
+                        <Typography component="span" variant="caption" color="text.disabled" sx={{ ml: 1 }}>
+                          {formatDate(item.at)}
+                        </Typography>
+                      </Typography>
+                      <Chip label={item.status} size="small" color={statusChipColor(item.status)} />
+                    </Box>
+                  ))}
                 </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2">Documents verified</Typography>
-                  <Chip label="Complete" size="small" color="success" />
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2">Profile updated</Typography>
-                  <Chip label="Complete" size="small" color="success" />
-                </Box>
-              </Box>
+              )}
             </Paper>
           </motion.div>
         </Grid>
