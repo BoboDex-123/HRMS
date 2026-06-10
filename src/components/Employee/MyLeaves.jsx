@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Chip, CircularProgress,
+  TablePagination,
 } from '@mui/material';
 import { EventNote as LeaveIcon } from '@mui/icons-material';
 import { motion } from 'framer-motion';
@@ -22,6 +23,8 @@ const MyLeaves = () => {
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   useEffect(() => {
     const fetchLeaves = async () => {
@@ -81,7 +84,7 @@ const MyLeaves = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {leaves.map((leave) => (
+              {leaves.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((leave) => (
                 <TableRow key={leave.id} hover>
                   <TableCell>
                     <Chip label={leave.leaveType || '—'} size="small" variant="outlined" />
@@ -103,6 +106,15 @@ const MyLeaves = () => {
               ))}
             </TableBody>
           </Table>
+          <TablePagination
+            component="div"
+            count={leaves.length}
+            page={page}
+            onPageChange={(e, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+            rowsPerPageOptions={[10, 25, 50]}
+          />
         </TableContainer>
       )}
     </Box>

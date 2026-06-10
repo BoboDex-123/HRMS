@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Button, Box, Typography, Chip
+  Paper, Button, Box, Typography, Chip, TablePagination
 } from '@mui/material';
 import { EventNote as LeaveIcon } from '@mui/icons-material';
 
@@ -17,6 +17,9 @@ const formatDate = (dateStr) => {
 };
 
 const LeaveApprovals = ({ leaveRequests, loading, onApproveLeave, onRejectLeave }) => {
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
   if (!loading && (!leaveRequests || leaveRequests.length === 0)) {
     return (
       <Box sx={{ textAlign: 'center', py: 10 }}>
@@ -45,7 +48,7 @@ const LeaveApprovals = ({ leaveRequests, loading, onApproveLeave, onRejectLeave 
           </TableRow>
         </TableHead>
         <TableBody>
-          {leaveRequests.map((request) => (
+          {leaveRequests.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((request) => (
             <TableRow key={request.id} hover>
               <TableCell sx={{ fontWeight: 500 }}>{request.name || '—'}</TableCell>
               <TableCell>{request.email}</TableCell>
@@ -92,6 +95,15 @@ const LeaveApprovals = ({ leaveRequests, loading, onApproveLeave, onRejectLeave 
           ))}
         </TableBody>
       </Table>
+      <TablePagination
+        component="div"
+        count={leaveRequests.length}
+        page={page}
+        onPageChange={(e, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+        rowsPerPageOptions={[10, 25, 50]}
+      />
     </TableContainer>
   );
 };

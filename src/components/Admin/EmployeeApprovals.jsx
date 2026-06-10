@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Button, Box, Typography, Chip, CircularProgress,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
-  IconButton, Tooltip
+  IconButton, Tooltip, TablePagination
 } from '@mui/material';
 import { Delete as DeleteIcon, Restore as RestoreIcon, PeopleAlt as PeopleIcon } from '@mui/icons-material';
 
@@ -21,6 +21,11 @@ const EmployeeApprovals = ({
   const isSuperAdmin = userRole === 'superadmin';
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
+  // A new search should always start from the first page of results.
+  useEffect(() => { setPage(0); }, [searchTerm]);
 
   const handleDeleteClick = (submission) => {
     setSubmissionToDelete(submission);
@@ -77,11 +82,11 @@ const EmployeeApprovals = ({
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map((s) => (
+            {filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((s) => (
               <TableRow
                 key={s.id}
                 hover
-                sx={{ opacity: s.isDeleted ? 0.6 : 1, backgroundColor: s.isDeleted ? '#fff5f5' : 'inherit' }}
+                sx={{ opacity: s.isDeleted ? 0.6 : 1, backgroundColor: s.isDeleted ? 'rgba(248,113,113,0.06)' : 'inherit' }}
               >
                 <TableCell sx={{ fontWeight: 500 }}>
                   {s.firstName} {s.lastName}
@@ -122,6 +127,15 @@ const EmployeeApprovals = ({
             ))}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={filtered.length}
+          page={page}
+          onPageChange={(e, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+          rowsPerPageOptions={[10, 25, 50]}
+        />
       </TableContainer>
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
