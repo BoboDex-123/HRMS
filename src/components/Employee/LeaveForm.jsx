@@ -11,8 +11,8 @@ import {
   Alert,
   CircularProgress
 } from '@mui/material';
-import { getCurrentUser } from '@aws-amplify/auth';
-import config from '../../config';
+import { getEmployeeEmail } from '../../employeeAuth';
+import { apiFetch } from '../../api';
 
 const LeaveForm = () => {
   const [formData, setFormData] = useState({
@@ -24,25 +24,37 @@ const LeaveForm = () => {
     reason: ''
   });
   const [loading, setLoading] = useState(false);
+  const [holidays, setHolidays] = useState([]);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  // Get current user email on mount
+  // Get current user email + holiday calendar on mount
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const user = await getCurrentUser();
-        if (user?.signInDetails?.loginId) {
-          setFormData(prev => ({
-            ...prev,
-            email: user.signInDetails.loginId
-          }));
-        }
-      } catch (err) {
-        console.error('Error fetching user:', err);
-      }
-    };
-    fetchUser();
+    const email = getEmployeeEmail();
+    if (email) {
+      setFormData(prev => ({ ...prev, email }));
+    }
+    apiFetch('/api/employee/holidays', { auth: 'employee' })
+      .then(setHolidays)
+      .catch(() => {}); // preview is best-effort; form works without it
   }, []);
+
+  // Working-day breakdown for the selected range (excludes weekends + company holidays).
+  const dayBreakdown = (() => {
+    const { startDate, endDate } = formData;
+    if (!startDate || !endDate || endDate < startDate) return null;
+    const holidaySet = new Set(holidays.map((h) => new Date(h.date).toDateString()));
+    let working = 0, weekend = 0, holiday = 0;
+    const d = new Date(startDate);
+    const end = new Date(endDate);
+    while (d <= end) {
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) weekend++;
+      else if (holidaySet.has(d.toDateString())) holiday++;
+      else working++;
+      d.setDate(d.getDate() + 1);
+    }
+    return { working, weekend, holiday };
+  })();
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -50,29 +62,27 @@ const LeaveForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (formData.endDate < formData.startDate) {
+      setSnackbar({ open: true, message: 'End date cannot be before start date', severity: 'error' });
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const response = await fetch(`${config.API_URL}/api/leave-request`, {
+      const result = await apiFetch('/api/leave-request', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          employeeEmail: formData.email,
+        auth: 'employee',
+        body: {
+          employeeName: formData.name,
           leaveType: formData.leaveType,
           fromDate: formData.startDate,
           toDate: formData.endDate,
           reason: formData.reason
-        })
+        }
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to submit leave request');
-      }
-
-      const result = await response.json();
       if (result.success) {
         setSnackbar({ open: true, message: 'Leave application submitted successfully!', severity: 'success' });
         setFormData(prev => ({
@@ -97,25 +107,14 @@ const LeaveForm = () => {
   return (
     <Box
       component={motion.div}
-      initial={{ opacity: 0, y: 50 }}
+      initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        background: 'linear-gradient(135deg, #f8fafc 0%, #dbeafe 100%)',
-        padding: 2
-      }}
+      transition={{ duration: 0.4 }}
+      sx={{ maxWidth: 560 }}
     >
       <Paper
-        component={motion.div}
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 0.3 }}
-        elevation={6}
-        sx={{ padding: 4, borderRadius: 4, maxWidth: 500, width: '100%' }}
+        variant="outlined"
+        sx={{ padding: 4, borderRadius: 3 }}
       >
         <Typography variant="h5" gutterBottom sx={{ textAlign: 'center', fontWeight: 'bold' }}>
           Employee Leave Application
@@ -177,6 +176,17 @@ const LeaveForm = () => {
             InputLabelProps={{ shrink: true }}
             required
           />
+          {dayBreakdown && (
+            <Alert severity="info" icon={false} sx={{ mt: 1, py: 0.5 }}>
+              <strong>{dayBreakdown.working} working day{dayBreakdown.working !== 1 ? 's' : ''}</strong> of leave
+              {(dayBreakdown.weekend > 0 || dayBreakdown.holiday > 0) && (
+                <> — excludes {[
+                  dayBreakdown.weekend > 0 ? `${dayBreakdown.weekend} weekend day${dayBreakdown.weekend !== 1 ? 's' : ''}` : null,
+                  dayBreakdown.holiday > 0 ? `${dayBreakdown.holiday} holiday${dayBreakdown.holiday !== 1 ? 's' : ''}` : null,
+                ].filter(Boolean).join(' and ')}</>
+              )}
+            </Alert>
+          )}
           <TextField
             label="Reason"
             name="reason"
@@ -203,7 +213,6 @@ const LeaveForm = () => {
           </Button>
         </form>
       </Paper>
-
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}

@@ -1,11 +1,17 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/login';
-import AdminPortal from './components/Admin/AdminPortal';
+import AdminLogin from './components/Admin/AdminLogin';
+import AdminDashboard from './components/Admin/AdminDashboard';
 import OnboardingForm from './components/Employee/OnboardingForm';
 import { RequireAuth } from './components/Employee/RequireAuth';
 import EmployeeAuthLogin from './components/Employee/EmployeeAuthLogin';
 import EmployeePortal from './components/Employee/EmployeePortal';
+
+// Admin routes are guarded by the presence of a session token; the API client
+// logs out and redirects on 401 if the token has expired server-side.
+const RequireAdminAuth = ({ children }) =>
+  sessionStorage.getItem('adminToken') ? children : <Navigate to="/admin-login" replace />;
 
 function App() {
   return (
@@ -19,7 +25,12 @@ function App() {
           </RequireAuth>
         } />
 
-        <Route path="/admin-login" element={<AdminPortal />} />
+        <Route path="/admin-login" element={<AdminLogin />} />
+        <Route path="/admin/*" element={
+          <RequireAdminAuth>
+            <AdminDashboard />
+          </RequireAdminAuth>
+        } />
         <Route path="/employee/onboarding" element={<OnboardingForm />} />
       </Routes>
 

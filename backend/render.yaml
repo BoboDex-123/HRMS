@@ -1,5 +1,9 @@
 # Render Blueprint for HRMS Backend
 # https://render.com/docs/blueprint-spec
+#
+# Set the `sync: false` values in the Render dashboard (they're secrets / per-deploy).
+# For durable uploads on Render (its disk is ephemeral on the free tier), set
+# STORAGE_PROVIDER=supabase and the SUPABASE_* vars below.
 
 services:
   - type: web
@@ -13,21 +17,39 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: AWS_ACCESS_KEY_ID
-        sync: false  # Set in Render dashboard
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false  # Set in Render dashboard
-      - key: AWS_REGION
-        value: ap-southeast-2
-      - key: S3_BUCKET
-        sync: false  # Set in Render dashboard
+
+      # Database — a managed Postgres connection string (e.g. Supabase Session-mode pooler, port 5432)
+      - key: DATABASE_URL
+        sync: false
+
+      # Auth — long random string; signs JWTs and signed file URLs
+      - key: JWT_SECRET
+        sync: false
+
+      # First-run admin bootstrap (seeds the admins table once; ignored afterwards)
+      - key: SUPER_ADMIN_USERNAME
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
       - key: ADMIN_USERNAME
-        sync: false  # Set in Render dashboard
+        sync: false
       - key: ADMIN_PASSWORD
-        sync: false  # Set in Render dashboard
-      - key: COGNITO_USER_POOL_ID
-        sync: false  # Set in Render dashboard
-      - key: COGNITO_APP_CLIENT_ID
-        sync: false  # Set in Render dashboard
+        sync: false
+
+      # File storage — use 'supabase' in production for durable uploads
+      - key: STORAGE_PROVIDER
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: onboarding-documents
+
+      # Public URL of this service (used to build local file links; harmless with supabase storage)
+      - key: API_BASE_URL
+        sync: false
+
+      # CORS — set to your deployed frontend origin (e.g. https://your-app.vercel.app)
       - key: ALLOWED_ORIGINS
-        sync: false  # Set to your Vercel URL in Render dashboard
+        sync: false

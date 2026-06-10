@@ -46,6 +46,9 @@ amplifytools.xcconfig
 
 # Custom ignores
 backend/.env
+backend/node_modules
+backend/uploads
+.claude/
 src/components/user1 access key
 
 # Environment files (all locations)
