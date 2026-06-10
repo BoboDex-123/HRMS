@@ -531,16 +531,21 @@ app.get('/api/employee/dashboard', requireEmployeeAuth, async (req, res) => {
     const email = empRows[0].email;
 
     const [leaveAgg, recentLeaves, submission] = await Promise.all([
-      // Days used this year (approved, inclusive of both endpoints) + pending count
+      // Days used this year: working days only — weekends and company
+      // holidays inside an approved range don't consume leave balance.
       pool.query(
         `SELECT
            COALESCE(SUM(
-             CASE WHEN status = 'Approved'
-                  AND date_part('year', from_date::date) = date_part('year', now())
-             THEN (to_date::date - from_date::date) + 1 ELSE 0 END
+             CASE WHEN lr.status = 'Approved'
+                  AND date_part('year', lr.from_date::date) = date_part('year', now())
+             THEN (
+               SELECT COUNT(*) FROM generate_series(lr.from_date::date, lr.to_date::date, '1 day') AS d
+               WHERE EXTRACT(ISODOW FROM d) < 6
+                 AND d::date NOT IN (SELECT holiday_date FROM holidays)
+             ) ELSE 0 END
            ), 0)::int AS days_used,
-           COUNT(*) FILTER (WHERE status = 'Pending')::int AS pending_count
-         FROM leave_requests WHERE employee_email = $1`,
+           COUNT(*) FILTER (WHERE lr.status = 'Pending')::int AS pending_count
+         FROM leave_requests lr WHERE lr.employee_email = $1`,
         [email]
       ),
       pool.query(
@@ -585,6 +590,64 @@ app.get('/api/employee/dashboard', requireEmployeeAuth, async (req, res) => {
   } catch (err) {
     console.error('Employee dashboard error:', err);
     res.status(500).json({ error: 'Failed to fetch dashboard data' });
+  }
+});
+
+// === Holidays ===
+// Admin-managed company holiday calendar; employees read it for leave planning.
+app.get('/api/holidays', requireAdminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM holidays ORDER BY holiday_date');
+    res.json(rows.map((r) => ({ id: r.id, date: r.holiday_date, name: r.name })));
+  } catch (err) {
+    console.error('Holiday fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch holidays' });
+  }
+});
+
+app.post('/api/holidays', requireAdminAuth, async (req, res) => {
+  try {
+    const { date, name } = req.body;
+    if (!date || !name || !name.trim()) {
+      return res.status(400).json({ error: 'Date and name are required' });
+    }
+    if (Number.isNaN(new Date(date).getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+    const id = uuidv4();
+    await pool.query(
+      'INSERT INTO holidays (id, holiday_date, name) VALUES ($1, $2, $3)',
+      [id, date, name.trim().slice(0, 120)]
+    );
+    res.json({ success: true, id });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'A holiday already exists on that date' });
+    }
+    console.error('Holiday create error:', err);
+    res.status(500).json({ error: 'Failed to add holiday' });
+  }
+});
+
+app.delete('/api/holidays/:id', requireAdminAuth, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM holidays WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Holiday not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Holiday delete error:', err);
+    res.status(500).json({ error: 'Failed to delete holiday' });
+  }
+});
+
+// Employee: full calendar (LeaveForm needs past + future to compute working days)
+app.get('/api/employee/holidays', requireEmployeeAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT holiday_date, name FROM holidays ORDER BY holiday_date');
+    res.json(rows.map((r) => ({ date: r.holiday_date, name: r.name })));
+  } catch (err) {
+    console.error('Holiday fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch holidays' });
   }
 });
 

@@ -24,15 +24,37 @@ const LeaveForm = () => {
     reason: ''
   });
   const [loading, setLoading] = useState(false);
+  const [holidays, setHolidays] = useState([]);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  // Get current user email on mount
+  // Get current user email + holiday calendar on mount
   useEffect(() => {
     const email = getEmployeeEmail();
     if (email) {
       setFormData(prev => ({ ...prev, email }));
     }
+    apiFetch('/api/employee/holidays', { auth: 'employee' })
+      .then(setHolidays)
+      .catch(() => {}); // preview is best-effort; form works without it
   }, []);
+
+  // Working-day breakdown for the selected range (excludes weekends + company holidays).
+  const dayBreakdown = (() => {
+    const { startDate, endDate } = formData;
+    if (!startDate || !endDate || endDate < startDate) return null;
+    const holidaySet = new Set(holidays.map((h) => new Date(h.date).toDateString()));
+    let working = 0, weekend = 0, holiday = 0;
+    const d = new Date(startDate);
+    const end = new Date(endDate);
+    while (d <= end) {
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) weekend++;
+      else if (holidaySet.has(d.toDateString())) holiday++;
+      else working++;
+      d.setDate(d.getDate() + 1);
+    }
+    return { working, weekend, holiday };
+  })();
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -154,6 +176,17 @@ const LeaveForm = () => {
             InputLabelProps={{ shrink: true }}
             required
           />
+          {dayBreakdown && (
+            <Alert severity="info" icon={false} sx={{ mt: 1, py: 0.5 }}>
+              <strong>{dayBreakdown.working} working day{dayBreakdown.working !== 1 ? 's' : ''}</strong> of leave
+              {(dayBreakdown.weekend > 0 || dayBreakdown.holiday > 0) && (
+                <> — excludes {[
+                  dayBreakdown.weekend > 0 ? `${dayBreakdown.weekend} weekend day${dayBreakdown.weekend !== 1 ? 's' : ''}` : null,
+                  dayBreakdown.holiday > 0 ? `${dayBreakdown.holiday} holiday${dayBreakdown.holiday !== 1 ? 's' : ''}` : null,
+                ].filter(Boolean).join(' and ')}</>
+              )}
+            </Alert>
+          )}
           <TextField
             label="Reason"
             name="reason"

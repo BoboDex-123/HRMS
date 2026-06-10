@@ -7,6 +7,7 @@ import {
   CheckCircle as CheckIcon,
   Schedule as PendingIcon,
   Person as PersonIcon,
+  Celebration as HolidayIcon,
 } from '@mui/icons-material';
 import { getEmployeeEmail } from '../../employeeAuth';
 import { motion } from 'framer-motion';
@@ -73,6 +74,7 @@ const EmployeeHome = () => {
   const navigate = useNavigate();
   const [userName, setUserName] = useState('');
   const [dashboard, setDashboard] = useState(null);
+  const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -80,7 +82,13 @@ const EmployeeHome = () => {
 
     const fetchDashboard = async () => {
       try {
-        setDashboard(await apiFetch('/api/employee/dashboard', { auth: 'employee' }));
+        const [dash, allHolidays] = await Promise.all([
+          apiFetch('/api/employee/dashboard', { auth: 'employee' }),
+          apiFetch('/api/employee/holidays', { auth: 'employee' }),
+        ]);
+        setDashboard(dash);
+        const today = new Date(new Date().toDateString());
+        setHolidays(allHolidays.filter((h) => new Date(h.date) >= today).slice(0, 5));
       } catch (err) {
         console.error('Dashboard fetch error:', err);
       } finally {
@@ -183,7 +191,42 @@ const EmployeeHome = () => {
           </motion.div>
         </Grid>
 
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={3}>
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.45, duration: 0.4 }}
+          >
+            <Paper sx={{ p: 3, height: '100%' }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                Upcoming Holidays
+              </Typography>
+              {loading && <Skeleton height={32} sx={{ mb: 1 }} />}
+              {!loading && holidays.length === 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  No upcoming holidays on the calendar.
+                </Typography>
+              )}
+              {!loading && holidays.length > 0 && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {holidays.map((h) => (
+                    <Box key={h.date} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <HolidayIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                      <Box>
+                        <Typography variant="body2" fontWeight={500}>{h.name}</Typography>
+                        <Typography variant="caption" color="text.disabled">
+                          {new Date(h.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Paper>
+          </motion.div>
+        </Grid>
+
+        <Grid item xs={12} md={3}>
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}

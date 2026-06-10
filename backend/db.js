@@ -83,6 +83,13 @@ async function initDb() {
 
     ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS decision_comment TEXT;
     ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS holidays (
+      id              UUID PRIMARY KEY,
+      holiday_date    DATE UNIQUE NOT NULL,
+      name            TEXT NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
   console.log('✅ Database schema ready');
   await seedAdmins();
