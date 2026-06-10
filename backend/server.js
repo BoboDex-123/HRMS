@@ -698,6 +698,29 @@ app.delete('/api/employee/timesheets/:id', requireEmployeeAuth, async (req, res)
   }
 });
 
+// Admin: weekly totals per employee
+app.get('/api/timesheets/summary', requireAdminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT employee_email, date_trunc('week', work_date)::date AS week_start,
+              SUM(hours)::float AS total_hours, COUNT(*)::int AS entries
+       FROM timesheets
+       GROUP BY employee_email, date_trunc('week', work_date)
+       ORDER BY week_start DESC, employee_email
+       LIMIT 500`
+    );
+    res.json(rows.map((r) => ({
+      email: r.employee_email,
+      weekStart: r.week_start,
+      totalHours: r.total_hours,
+      entries: r.entries,
+    })));
+  } catch (err) {
+    console.error('Timesheet summary error:', err);
+    res.status(500).json({ error: 'Failed to fetch summary' });
+  }
+});
+
 // Admin: view all timesheet entries
 app.get('/api/timesheets', requireAdminAuth, async (req, res) => {
   try {
